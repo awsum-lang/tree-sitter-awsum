@@ -1,0 +1,13 @@
+node_modules/
+build/
+prebuilds/
+*.log
+
+# Tree-sitter generated artefacts. Ship src/parser.c so consumers without
+# the tree-sitter CLI installed can still build the binding.
+# Keep src/parser.c, src/grammar.json, src/node-types.json — but ignore
+# binary build outputs.
+*.so
+*.dylib
+*.dll
+*.wasm

@@ -1,0 +1,145 @@
+==================
+Hello world
+==================
+
+import IO.Stdout
+
+main : IO Never Unit
+main = IO.Stdout.print "hello"
+
+---
+
+(source_file
+  (import_decl
+    module: (module_path
+      (upper_id)
+      (upper_id)))
+  (signature
+    name: (lower_id)
+    type: (type_app
+      callee: (type_app
+        callee: (upper_id)
+        arg: (upper_id))
+      arg: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    body: (app
+      (qname
+        (upper_id)
+        (upper_id)
+        (lower_id))
+      (string))))
+
+==================
+Type declaration with parameter
+==================
+
+type Maybe a = Nothing | Just a
+
+---
+
+(source_file
+  (type_decl
+    name: (upper_id)
+    parameter: (lower_id)
+    (con_def
+      name: (upper_id))
+    (con_def
+      name: (upper_id)
+      (lower_id))))
+
+==================
+Empty type declaration
+==================
+
+empty type Never
+
+---
+
+(source_file
+  (empty_type_decl
+    name: (upper_id)))
+
+==================
+Function with parameter
+==================
+
+square : Int32 -> Int32
+square n = n
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (upper_id)
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    parameter: (lower_id)
+    body: (lower_id)))
+
+==================
+Line comment
+==================
+
+-- top comment
+main : IO Never Unit
+main = main
+
+---
+
+(source_file
+  (line_comment)
+  (signature
+    name: (lower_id)
+    type: (type_app
+      callee: (type_app
+        callee: (upper_id)
+        arg: (upper_id))
+      arg: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    body: (lower_id)))
+
+==================
+Underscore-prefixed identifiers
+==================
+
+_unused : Int32 -> String
+_unused _n = "hi"
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (upper_id)
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    parameter: (lower_id)
+    body: (string)))
+
+==================
+Pipe operator chain
+==================
+
+answer : Int32
+answer = foo |> bar |> baz
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (upper_id))
+  (fun_def
+    name: (lower_id)
+    body: (pipe_expr
+      (pipe_expr
+        (lower_id)
+        (lower_id))
+      (lower_id))))
