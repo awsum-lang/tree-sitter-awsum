@@ -27,9 +27,11 @@ npx tree-sitter test       # run the corpus tests under test/corpus/
 
 ## How the grammar is verified against the compiler
 
-Two test layers — both live in the compiler repo (`awsum/`), under a standalone `tree-sitter-tests` test-suite gated by a cabal flag so it doesn't run on CI:
+Three test layers — all live in the compiler repo (`awsum/`), under a standalone `tree-sitter-tests` test-suite gated by a cabal flag so it doesn't run on CI:
 
-- **Corpus.** Every `.aww` under `awsum/test/sources/successful/` and `awsum/test/sources/property/` is parsed by this grammar and asserted to produce no `(ERROR …)` / `(MISSING …)` nodes. These are the canonical surface-syntax fixtures the compiler itself accepts; if tree-sitter can't parse them, the grammar drifted from the language. Fast, deterministic — the natural baseline for grammar work.
+- **Corpus.** Every `.aww` under `awsum/test/sources/successful/` and `awsum/test/sources/property/` is parsed by this grammar and asserted to produce no `(ERROR …)` / `(MISSING …)` nodes. These are the canonical surface-syntax fixtures the compiler itself accepts; if tree-sitter can't parse them, the grammar drifted from the language.
+
+- **Queries.** Every `.scm` under `tree-sitter-awsum/queries/` is run against every `.aww` in the corpus via `tree-sitter query` and asserted to produce no `Query error` / `Invalid node type` / `Query compilation failed`. Catches grammar/queries drift — when a grammar change renames or hides a node type, the queries that reference it now have nowhere to bind, but the tree-sitter CLI prints those errors to stdout while exiting 0, so neither `tree-sitter generate` nor parse-only checks would notice.
 
 - **Property.** For each QuickCheck-generated `Program`, render it via the compiler's `Awsum.Render.renderProgram` (the same pipeline `awsum format` uses), feed the output to `tree-sitter parse`, and assert the same no-error invariant. Drives the grammar past the corpus into rare combinations that arbitrary generation hits.
 

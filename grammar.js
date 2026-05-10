@@ -153,10 +153,10 @@ module.exports = grammar({
     // same definition. Syntactically allowed in user code too, but
     // practically prelude-only.
     _decl_name: $ => choice($.lower_id, $.operator_name),
-    operator_name: $ => seq($._paren_open, '++', $._paren_close),
+    operator_name: $ => seq(alias($._paren_open, '('), '++', alias($._paren_close, ')')),
 
     _param: $ => choice($.lower_id, $._paren_pattern),
-    _paren_pattern: $ => seq($._paren_open, $._pattern, $._paren_close),
+    _paren_pattern: $ => seq(alias($._paren_open, '('), $._pattern, alias($._paren_close, ')')),
 
     // ─── Types ──────────────────────────────────────────────────────────────
     // Precedence (loosest → tightest): '|' < '->' < TypeApp < TypeAtom.
@@ -188,7 +188,7 @@ module.exports = grammar({
     _type_atom: $ => choice(
       $.upper_id,
       $.lower_id,
-      seq($._paren_open, $._type, $._paren_close),
+      seq(alias($._paren_open, '('), $._type, alias($._paren_close, ')')),
     ),
 
     // ─── Expressions ────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ module.exports = grammar({
       $.qname,
       $.upper_id,
       $.lower_id,
-      seq($._paren_open, $._expr, $._paren_close),
+      seq(alias($._paren_open, '('), $._expr, alias($._paren_close, ')')),
       $.string,
       $.integer,
     ),
@@ -315,11 +315,11 @@ module.exports = grammar({
       $.parens_pattern,
     ),
     pattern_constructor: $ => prec.left(seq($.upper_id, repeat($._pattern_atom))),
-    pattern_ascribe: $ => seq($._paren_open, $._pattern, ':', $._type, $._paren_close),
+    pattern_ascribe: $ => seq(alias($._paren_open, '('), $._pattern, ':', $._type, alias($._paren_close, ')')),
     // Parens-wrapped pattern with no ascription. Shares a `(` prefix
     // with `pattern_ascribe`; tree-sitter forks via the declared
     // conflict on `[$.pattern_ascribe, $.parens_pattern]`.
-    parens_pattern: $ => seq($._paren_open, $._pattern, $._paren_close),
+    parens_pattern: $ => seq(alias($._paren_open, '('), $._pattern, alias($._paren_close, ')')),
     _pattern_atom: $ => choice(
       $.lower_id,
       $.upper_id,

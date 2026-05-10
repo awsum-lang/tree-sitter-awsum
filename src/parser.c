@@ -141,8 +141,8 @@ static const char * const ts_symbol_names[] = {
   [sym__layout_open] = "_layout_open",
   [sym__layout_end] = "_layout_end",
   [sym__layout_close] = "_layout_close",
-  [sym__paren_open] = "_paren_open",
-  [sym__paren_close] = "_paren_close",
+  [sym__paren_open] = "(",
+  [sym__paren_close] = ")",
   [sym__let_open] = "_let_open",
   [sym_source_file] = "source_file",
   [sym_import_decl] = "import_decl",
@@ -416,12 +416,12 @@ static const TSSymbolMetadata ts_symbol_metadata[] = {
     .named = true,
   },
   [sym__paren_open] = {
-    .visible = false,
-    .named = true,
+    .visible = true,
+    .named = false,
   },
   [sym__paren_close] = {
-    .visible = false,
-    .named = true,
+    .visible = true,
+    .named = false,
   },
   [sym__let_open] = {
     .visible = false,

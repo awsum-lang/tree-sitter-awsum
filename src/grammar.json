@@ -340,16 +340,26 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "_paren_open"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_open"
+          },
+          "named": false,
+          "value": "("
         },
         {
           "type": "STRING",
           "value": "++"
         },
         {
-          "type": "SYMBOL",
-          "name": "_paren_close"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_close"
+          },
+          "named": false,
+          "value": ")"
         }
       ]
     },
@@ -370,16 +380,26 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "_paren_open"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_open"
+          },
+          "named": false,
+          "value": "("
         },
         {
           "type": "SYMBOL",
           "name": "_pattern"
         },
         {
-          "type": "SYMBOL",
-          "name": "_paren_close"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_close"
+          },
+          "named": false,
+          "value": ")"
         }
       ]
     },
@@ -502,16 +522,26 @@
           "type": "SEQ",
           "members": [
             {
-              "type": "SYMBOL",
-              "name": "_paren_open"
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_paren_open"
+              },
+              "named": false,
+              "value": "("
             },
             {
               "type": "SYMBOL",
               "name": "_type"
             },
             {
-              "type": "SYMBOL",
-              "name": "_paren_close"
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_paren_close"
+              },
+              "named": false,
+              "value": ")"
             }
           ]
         }
@@ -983,16 +1013,26 @@
           "type": "SEQ",
           "members": [
             {
-              "type": "SYMBOL",
-              "name": "_paren_open"
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_paren_open"
+              },
+              "named": false,
+              "value": "("
             },
             {
               "type": "SYMBOL",
               "name": "_expr"
             },
             {
-              "type": "SYMBOL",
-              "name": "_paren_close"
+              "type": "ALIAS",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_paren_close"
+              },
+              "named": false,
+              "value": ")"
             }
           ]
         },
@@ -1084,8 +1124,13 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "_paren_open"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_open"
+          },
+          "named": false,
+          "value": "("
         },
         {
           "type": "SYMBOL",
@@ -1100,8 +1145,13 @@
           "name": "_type"
         },
         {
-          "type": "SYMBOL",
-          "name": "_paren_close"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_close"
+          },
+          "named": false,
+          "value": ")"
         }
       ]
     },
@@ -1109,16 +1159,26 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "_paren_open"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_open"
+          },
+          "named": false,
+          "value": "("
         },
         {
           "type": "SYMBOL",
           "name": "_pattern"
         },
         {
-          "type": "SYMBOL",
-          "name": "_paren_close"
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_close"
+          },
+          "named": false,
+          "value": ")"
         }
       ]
     },
