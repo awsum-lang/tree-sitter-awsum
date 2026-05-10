@@ -31,15 +31,28 @@ module.exports = grammar({
   word: $ => $.lower_id,
 
   externals: $ => [
-    // Zero-length token emitted by `src/scanner.c` whenever one or more
-    // newlines are followed by a column-0 non-whitespace token (or EOF).
-    // Used as the boundary between top-level items so that
+    // Tokens emitted by `src/scanner.c`. See the scanner header for
+    // the full indent-stack model.
     //
-    //     main : IO Never Unit
-    //     main = ...
-    //
-    // doesn't parse as a single type expression `IO Never Unit main`.
+    //   * `_layout_open` — push (column, paren_depth, is_let=0) for a
+    //     do / case block.
+    //   * `_let_open` — push for a let block (is_let=1). Distinct
+    //     from `_layout_open` so the scanner can gate the `in`-
+    //     keyword close peek on the block kind: only let blocks have
+    //     `in` as their single-line close marker.
+    //   * `_layout_end` — sibling separator (column == top.col),
+    //     also top-level boundary on column-0 newline / EOF.
+    //   * `_layout_close` — block exit on dedent / EOF / `in` peek.
+    //   * `_paren_open` / `_paren_close` — emitted on `(` / `)` to
+    //     keep the scanner's paren_depth accurate so layout tokens
+    //     stay suppressed while we're inside parens that opened
+    //     after the current block began.
+    $._layout_open,
     $._layout_end,
+    $._layout_close,
+    $._paren_open,
+    $._paren_close,
+    $._let_open,
   ],
 
   conflicts: $ => [
@@ -47,11 +60,17 @@ module.exports = grammar({
     // in expression position cannot be disambiguated by tree-sitter without
     // semantic context. Both interpretations are listed here.
     [$.pattern_constructor, $._atom],
-    // Inside a `do`-block, `let n = e` is ambiguous: it can be a do_let
-    // (which makes the let visible to subsequent do statements) or it
-    // can start a do_expr containing a top-level let_expr. Both produce
-    // the same highlight output.
-    [$.let_expr, $.do_let],
+    // After `do`, `(x)` is ambiguous: it could be a `do_expr` containing
+    // a parenthesised expression, or a `do_bind` whose pattern is a
+    // parens-wrapped binding-name (followed by `<-` …). The two share
+    // the prefix `(_id`; tree-sitter needs to fork until `<-` (or its
+    // absence) decides.
+    [$._atom, $._pattern],
+    // `(name :` could be the start of a `pattern_ascribe` or a
+    // `parens_pattern` whose inner pattern is being ascribed. The
+    // grammar lets both shapes match `( _pattern` — fork until `:`
+    // or `)` decides.
+    [$.pattern_ascribe, $.parens_pattern],
   ],
 
   rules: {
@@ -134,10 +153,10 @@ module.exports = grammar({
     // same definition. Syntactically allowed in user code too, but
     // practically prelude-only.
     _decl_name: $ => choice($.lower_id, $.operator_name),
-    operator_name: $ => seq('(', '++', ')'),
+    operator_name: $ => seq($._paren_open, '++', $._paren_close),
 
     _param: $ => choice($.lower_id, $._paren_pattern),
-    _paren_pattern: $ => seq('(', $._pattern, ')'),
+    _paren_pattern: $ => seq($._paren_open, $._pattern, $._paren_close),
 
     // ─── Types ──────────────────────────────────────────────────────────────
     // Precedence (loosest → tightest): '|' < '->' < TypeApp < TypeAtom.
@@ -169,7 +188,7 @@ module.exports = grammar({
     _type_atom: $ => choice(
       $.upper_id,
       $.lower_id,
-      seq('(', $._type, ')'),
+      seq($._paren_open, $._type, $._paren_close),
     ),
 
     // ─── Expressions ────────────────────────────────────────────────────────
@@ -196,16 +215,26 @@ module.exports = grammar({
 
     lambda: $ => seq(
       '\\',
-      field('parameter', $.lower_id),
-      repeat(field('parameter', $.lower_id)),
+      field('parameter', $._param),
+      repeat(field('parameter', $._param)),
       '->',
       field('body', $._expr),
     ),
 
+    // `let` introduces a layout block: bindings on subsequent lines at
+    // the same indent are siblings of the first binding. The closing
+    // `in body` is optional (a `do`-internal `let` has no `in`).
     let_expr: $ => prec.right(seq(
       'let',
+      $._let_open,
       $.let_binding,
-      repeat($.let_binding),
+      repeat(seq($._layout_end, $.let_binding)),
+      // Scanner always emits `_layout_close` at end of bindings
+      // (and pops the let-block stack entry). The optional `'in'
+      // body` is then tokenised by tree-sitter's regular keyword
+      // extraction at the post-close state, where `'in'` is a
+      // valid lookahead and so wins over a generic `lower_id`.
+      $._layout_close,
       optional(seq('in', field('body', $._expr))),
     )),
 
@@ -216,7 +245,15 @@ module.exports = grammar({
       field('value', $._expr),
     ),
 
-    do_block: $ => prec.right(seq('do', repeat($._do_stmt))),
+    // `do` introduces a layout block: statements at the same indent
+    // are siblings, separated by `_layout_end`.
+    do_block: $ => prec.right(seq(
+      'do',
+      $._layout_open,
+      $._do_stmt,
+      repeat(seq($._layout_end, $._do_stmt)),
+      $._layout_close,
+    )),
     _do_stmt: $ => choice($.do_bind, $.do_let, $.do_expr),
     do_bind: $ => prec.right(seq(
       field('pattern', $._pattern),
@@ -226,11 +263,16 @@ module.exports = grammar({
     do_let: $ => seq('let', $.let_binding),
     do_expr: $ => $._expr,
 
+    // `case … of` introduces a layout block whose siblings are arms.
+    // Arms at the same indent are separated by `_layout_end`.
     case_expr: $ => prec.right(seq(
       'case',
       field('scrutinee', $._expr),
       'of',
-      repeat($.case_arm),
+      $._layout_open,
+      $.case_arm,
+      repeat(seq($._layout_end, $.case_arm)),
+      $._layout_close,
     )),
     case_arm: $ => prec.right(seq(
       field('pattern', $._pattern),
@@ -250,7 +292,7 @@ module.exports = grammar({
       $.qname,
       $.upper_id,
       $.lower_id,
-      seq('(', $._expr, ')'),
+      seq($._paren_open, $._expr, $._paren_close),
       $.string,
       $.integer,
     ),
@@ -270,13 +312,18 @@ module.exports = grammar({
       $.pattern_constructor,
       $.lower_id,
       $.pattern_ascribe,
+      $.parens_pattern,
     ),
     pattern_constructor: $ => prec.left(seq($.upper_id, repeat($._pattern_atom))),
-    pattern_ascribe: $ => seq('(', $._pattern, ':', $._type, ')'),
+    pattern_ascribe: $ => seq($._paren_open, $._pattern, ':', $._type, $._paren_close),
+    // Parens-wrapped pattern with no ascription. Shares a `(` prefix
+    // with `pattern_ascribe`; tree-sitter forks via the declared
+    // conflict on `[$.pattern_ascribe, $.parens_pattern]`.
+    parens_pattern: $ => seq($._paren_open, $._pattern, $._paren_close),
     _pattern_atom: $ => choice(
       $.lower_id,
       $.upper_id,
-      seq('(', $._pattern, ')'),
+      $.parens_pattern,
       $.pattern_ascribe,
     ),
 

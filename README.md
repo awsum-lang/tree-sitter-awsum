@@ -4,20 +4,18 @@ Tree-sitter grammar for the [Awsum](https://awsum-lang.org) programming language
 
 The grammar drives **syntax highlighting** and the **outline view** in tree-sitter-aware editors — Zed (via the [`awsum-zed`](https://github.com/awsum-lang/awsum-zed) extension), Helix, Neovim, Emacs ts-mode. Precise diagnostics never come from this grammar; they come from the official Awsum compiler's Language Server (`awsum lsp`), which runs the real Megaparsec parser + typechecker and pushes results through LSP.
 
-## What's covered
+The grammar is tested against every `.aww` program in the compiler's test corpus (`awsum/test/sources/successful/` and `awsum/test/sources/property/`) — see [How the grammar is verified against the compiler](#how-the-grammar-is-verified-against-the-compiler) below. Anything those programs use, this grammar parses without error.
 
-- Top-level declarations: `import`, `type`, `empty type`, signature (`name : Type`), function definition (`name args = body`).
-- Identifiers (lowercase / uppercase, with optional `_` prefix), strings with escape sequences, integer literals (with `_` separators), comments (line + non-nested block).
-- Operators: `|>`, `++`, function application, `->`, `|`, `:`, `<-`, `=`, `\\`.
-- Patterns: bare names, constructor patterns, type-ascription patterns `(x : T)`.
-- Expressions: `let … in`, `do { … }`, `case … of …`, lambdas, qualified names.
+## How layout works
 
-## Known limitations (v0)
+An external scanner (`src/scanner.c`) maintains an indent stack with one entry per active block. Six external tokens drive it:
 
-- **Multi-line `case` arms** can produce `(ERROR …)` nodes when subsequent arms appear on indented lines. The external scanner only emits layout boundaries at column 0 (top-level decl boundary), not at the per-block indent levels that `case` / `do` / `let` use. Token-level highlighting still works around the error region; the LSP server delivers correct semantic state.
-- **Nested block comments** (`{- {- inner -} outer -}`) parse only at the outer level.
+- `_layout_open` / `_let_open` — pushed when the parser sees `do` / `of` / `let`. Captures the column of the first token inside the block plus the current paren-depth.
+- `_layout_end` — sibling separator inside a block (column == top of stack); also serves as the top-level boundary on a column-0 newline / EOF.
+- `_layout_close` — block exit: column < top of stack, EOF inside a block, or an enclosing `)` that's about to close.
+- `_paren_open` / `_paren_close` — every `(` / `)` is routed through the scanner so paren-depth stays accurate. Layout tokens are suppressed while the current paren-depth exceeds the depth captured at block-open, which is what lets a multi-line `(…)` span layout boundaries cleanly.
 
-The grammar is intentionally permissive — it is not a re-implementation of the compiler's frontend, and is not expected to reject malformed Awsum.
+The literal `'in'` keyword stays in the grammar as a regular tree-sitter token, matched by keyword-extraction in FOLLOW(`_layout_close`).
 
 ## Build
 
@@ -26,6 +24,28 @@ npm install                # install the tree-sitter CLI
 npx tree-sitter generate   # produce src/parser.c from grammar.js
 npx tree-sitter test       # run the corpus tests under test/corpus/
 ```
+
+## How the grammar is verified against the compiler
+
+Two test layers — both live in the compiler repo (`awsum/`), under a standalone `tree-sitter-tests` test-suite gated by a cabal flag so it doesn't run on CI:
+
+- **Corpus.** Every `.aww` under `awsum/test/sources/successful/` and `awsum/test/sources/property/` is parsed by this grammar and asserted to produce no `(ERROR …)` / `(MISSING …)` nodes. These are the canonical surface-syntax fixtures the compiler itself accepts; if tree-sitter can't parse them, the grammar drifted from the language. Fast, deterministic — the natural baseline for grammar work.
+
+- **Property.** For each QuickCheck-generated `Program`, render it via the compiler's `Awsum.Render.renderProgram` (the same pipeline `awsum format` uses), feed the output to `tree-sitter parse`, and assert the same no-error invariant. Drives the grammar past the corpus into rare combinations that arbitrary generation hits.
+
+Run from inside `awsum/`:
+
+```bash
+just test-tree-sitter            # corpus only — fast, deterministic
+just test-tree-sitter-property   # property only — slow, ~100 generated programs
+```
+
+Both recipes regenerate `src/parser.c` from `grammar.js` first and require:
+
+- `tree-sitter` CLI on PATH (e.g. `brew install tree-sitter` or `npm install -g tree-sitter-cli`).
+- This repo (`tree-sitter-awsum/`) checked out next to `awsum/`, or `TREE_SITTER_AWSUM_DIR` set to its path.
+
+If either is missing, the test-suite falls back to a single `pendingWith` and the rest of the (compiler-side) test suite is unaffected.
 
 ## Versioning
 
