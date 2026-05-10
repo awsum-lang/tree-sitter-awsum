@@ -44,9 +44,17 @@
 (block_comment) @comment
 
 ; ─── Strings & integers ──────────────────────────────────────────────────────
+;
+; The string is a single lexer token (so extras don't bleed into its
+; body — a literal `"--"` would otherwise get a `line_comment` node
+; inside it). Escape sequences inside strings are highlighted via a
+; second @string.escape capture on the same node, with the regex
+; matching anywhere in the literal — editors that honour this layer
+; (Zed / Helix / Neovim) overlay it on top of the base @string colour.
 
 (string) @string
-(escape_sequence) @string.escape
+((string) @string.escape
+  (#match? @string.escape "\\\\[ntr\"\\\\0]"))
 (integer) @number
 
 ; ─── Type-decl name + constructors ──────────────────────────────────────────

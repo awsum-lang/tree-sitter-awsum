@@ -798,8 +798,12 @@
           "name": "do_bind"
         },
         {
-          "type": "SYMBOL",
-          "name": "do_let"
+          "type": "PREC_DYNAMIC",
+          "value": 1,
+          "content": {
+            "type": "SYMBOL",
+            "name": "do_let"
+          }
         },
         {
           "type": "SYMBOL",
@@ -1204,41 +1208,36 @@
       ]
     },
     "string": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "\""
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "SYMBOL",
-                "name": "escape_sequence"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "_string_text"
-              }
-            ]
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "\""
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "\\\\[ntr\"\\\\0]"
+                },
+                {
+                  "type": "PATTERN",
+                  "value": "[^\"\\\\]+"
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "\""
           }
-        },
-        {
-          "type": "STRING",
-          "value": "\""
-        }
-      ]
-    },
-    "escape_sequence": {
-      "type": "PATTERN",
-      "value": "\\\\[ntr\"\\\\0]"
-    },
-    "_string_text": {
-      "type": "PATTERN",
-      "value": "[^\"\\\\]+"
+        ]
+      }
     },
     "integer": {
       "type": "PATTERN",
@@ -1269,17 +1268,8 @@
       }
     },
     "block_comment": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "{-"
-        },
-        {
-          "type": "PATTERN",
-          "value": "[\\s\\S]*?-\\}"
-        }
-      ]
+      "type": "PATTERN",
+      "value": "\\{-([^-]|-[^}])*-+\\}"
     }
   },
   "extras": [

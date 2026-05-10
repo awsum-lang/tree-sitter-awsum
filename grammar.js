@@ -14,9 +14,45 @@
  * built-in error recovery emits an `(ERROR ...)` node and continues —
  * highlighting elsewhere in the file still works.
  *
- * Nested block comments (`{- {- inner -} outer -}`) are not handled by
- * the regex tokenizer; an external scanner would be required. For v0
- * we accept only flat block comments.
+ * ──────────────────────────────────────────────────────────────────
+ * DO NOT use `*?` / `+?` non-greedy quantifiers in token regexes.
+ *
+ * tree-sitter's regex engine matches them GREEDILY in practice
+ * (regex-syntax compiles `[\s\S]*?-\}` so it consumes everything up
+ * to the LAST `-}` in the buffer, not the first). On a file with
+ * two block comments the first `{-` pairs with the second `-}`,
+ * collapsing the code between into one giant comment token; the
+ * parser then enters infinite-loop error recovery (we measured 22
+ * GiB of RAM in 10 seconds on a 4-line file).
+ *
+ * BROKEN:  block_comment: $ => seq('{-', /[\s\S]*?-\}/),
+ *
+ * Use a NEGATED CHARACTER CLASS instead so plain greedy `*` stops
+ * at the first occurrence of the closer:
+ *
+ * OK:      block_comment: $ => /\{-([^-]|-[^}])*-+\}/,
+ *
+ * The inner repeat matches "any non-`-` char" OR "a `-` followed
+ * by non-`}`". Greedy `*` stops at the first `-}` because neither
+ * alternative matches `-`-followed-by-`}`. The trailing `-+\}`
+ * consumes the closing `-}` (with `-+` to absorb extra dashes).
+ *
+ * Single-character closers are safe as ordinary regex (e.g. the
+ * `line_comment` rule below uses `[^` newline `]` followed by `*`)
+ * because a negated class is a plain greedy `*`, not a non-greedy
+ * any-char.
+ *
+ * Don't try to fix this with an external scanner / composite rule:
+ *   • Pure-external `block_comment` token: tree-sitter doesn't
+ *     include external tokens in `valid_symbols` at every state
+ *     where extras are allowed; the second `{- … -}` in a file
+ *     parsed as `(ERROR …)` chunks.
+ *   • Composite `seq('{-', $._block_comment_content, '-}')` with
+ *     external middle: tree-sitter invoked the content scanner
+ *     BEFORE the `{-` literal matched, swallowing the whole file.
+ *   • Wrapper `block_comment: $ => $._block_comment`: same
+ *     valid_symbols issue as the pure-external attempt.
+ * ──────────────────────────────────────────────────────────────────
  */
 
 module.exports = grammar({
@@ -254,7 +290,19 @@ module.exports = grammar({
       repeat(seq($._layout_end, $._do_stmt)),
       $._layout_close,
     )),
-    _do_stmt: $ => choice($.do_bind, $.do_let, $.do_expr),
+    // `let` at the start of a do-stmt is ambiguous: it can be
+    // `do_let` (no `in`, just `let pat = expr`) or `do_expr` whose
+    // body is a `let_expr` (opens a let-block via `_let_open`,
+    // requires `_layout_close`, optional `in body`). In a do-stmt
+    // position the user normally means `do_let` — the scanner
+    // doesn't emit `_layout_close` for a let-block that ends at a
+    // do-block sibling boundary (column-equality emits LAYOUT_END,
+    // not LAYOUT_CLOSE), so the `do_expr → let_expr` branch never
+    // closes and degrades to ERROR. `prec.dynamic` biases tree-
+    // sitter toward `do_let` so the do-stmt completes cleanly even
+    // when the binding's value is a multi-line / parens-spanning
+    // expression like `let b = (let p = e in q) (r)`.
+    _do_stmt: $ => choice($.do_bind, prec.dynamic(1, $.do_let), $.do_expr),
     do_bind: $ => prec.right(seq(
       field('pattern', $._pattern),
       '<-',
@@ -329,16 +377,28 @@ module.exports = grammar({
 
     // ─── Terminals ──────────────────────────────────────────────────────────
 
-    string: $ => seq(
+    // String literal as a single lexer token via `token(...)`. A
+    // composite `seq('"', repeat(...), '"')` lets the global extras
+    // pipeline (`line_comment` / `block_comment`) compete for the
+    // body's lexer slot — `"--"` would then parse with a
+    // `line_comment` node covering the inner `--"`, the closing
+    // quote goes MISSING, and the rest of the file degenerates.
+    // `token.immediate` on the inner pieces is NOT enough: it
+    // gates only "no extras BEFORE this token", not "extras
+    // disallowed for the lexer-choice at this position", so an
+    // overlapping line_comment still wins on length.
+    //
+    // Trade-off: per-escape `escape_sequence` sub-nodes are gone.
+    // Editors that highlight escapes do it via a #match? regex in
+    // queries/highlights.scm against the whole string node.
+    string: $ => token(seq(
       '"',
       repeat(choice(
-        $.escape_sequence,
-        $._string_text,
+        /\\[ntr"\\0]/,
+        /[^"\\]+/,
       )),
       '"',
-    ),
-    escape_sequence: $ => /\\[ntr"\\0]/,
-    _string_text: $ => /[^"\\]+/,
+    )),
 
     // Optional leading '-' followed by digits with optional `_` separators
     // (no two consecutive '_' or trailing '_'; surface grammar enforces
@@ -359,10 +419,19 @@ module.exports = grammar({
     upper_id: $ => /_[A-Z][A-Za-z0-9_']*|[A-Z][A-Za-z0-9_']*/,
 
     line_comment: $ => token(seq('--', /[^\n]*/)),
-    // Non-nested block comment. Awsum actually allows nesting; covering
-    // it here would require an external scanner. Files using nested
-    // comments will get an (ERROR) node and the surrounding code
-    // continues to highlight.
-    block_comment: $ => seq('{-', /[\s\S]*?-\}/),
+    // Block comment — single regex token, non-greedy via a NEGATED
+    // character class. The inner repeat `[^-]|-[^}]` matches any
+    // char that isn't `-`, OR a `-` followed by a non-`}`; greedy
+    // `*` stops at the first `-}` because neither alternative
+    // matches `-`-followed-by-`}`. `-+\}` then consumes the
+    // closing `-}` (with `-+` to absorb extra dashes like `--}`).
+    //
+    // DO NOT rewrite the inner repeat as `[\s\S]*?-\}` — see the
+    // banner comment at the top of this file. The full why is
+    // there with concrete examples.
+    //
+    // Nesting is NOT supported by this regex (Awsum doesn't
+    // require it in v0).
+    block_comment: $ => /\{-([^-]|-[^}])*-+\}/,
   },
 });

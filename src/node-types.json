@@ -133,11 +133,6 @@
     }
   },
   {
-    "type": "block_comment",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "case_arm",
     "named": true,
     "fields": {
@@ -1319,21 +1314,6 @@
     }
   },
   {
-    "type": "string",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "escape_sequence",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "type_app",
     "named": true,
     "fields": {
@@ -1518,10 +1498,6 @@
     }
   },
   {
-    "type": "\"",
-    "named": false
-  },
-  {
     "type": "(",
     "named": false
   },
@@ -1558,6 +1534,11 @@
     "named": false
   },
   {
+    "type": "block_comment",
+    "named": true,
+    "extra": true
+  },
+  {
     "type": "case",
     "named": false
   },
@@ -1568,10 +1549,6 @@
   {
     "type": "empty",
     "named": false
-  },
-  {
-    "type": "escape_sequence",
-    "named": true
   },
   {
     "type": "import",
@@ -1603,16 +1580,16 @@
     "named": false
   },
   {
+    "type": "string",
+    "named": true
+  },
+  {
     "type": "type",
     "named": false
   },
   {
     "type": "upper_id",
     "named": true
-  },
-  {
-    "type": "{-",
-    "named": false
   },
   {
     "type": "|",

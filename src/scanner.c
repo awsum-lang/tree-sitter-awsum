@@ -54,29 +54,52 @@ enum TokenType {
   LET_OPEN,
 };
 
-// Stack depth ceiling for the indent stack. The stress tests in
-// `awsum/test/sources/successful/stress-*` push 300+ levels of
-// nested `case` blocks; budget 512 to absorb that and leave headroom.
-// Each entry is 3 bytes; serialized state stays well below tree-
-// sitter's per-state buffer cap (~1 KiB) since `2 + 3 * 512 = 1538`
-// would exceed it, but real programs never approach this depth — it
-// only matters for the worst-case stress files.
+// Total number of externals declared in `grammar.js`. Used by the
+// error-recovery guard. MUST match the externals array length in
+// `grammar.js` exactly — a mismatch makes `valid_symbols[i]`
+// out-of-bounds reads, which silently corrupts scanner decisions.
 //
-// If a future test ever exceeds this, the scanner caps `s->len` at
-// MAX_DEPTH on push (silently dropping deeper levels); the parse
-// will degrade rather than crash, surfaced as `(ERROR ...)` nodes
-// near the over-deep block.
-#define MAX_DEPTH 512
+// Block comments are NOT external — the grammar's
+// `block_comment: $ => /\{-([^-]|-[^}])*-+\}/` regex matches them.
+// Don't try `[\s\S]*?-\}`: tree-sitter's regex engine matches `*?`
+// greedily, so two block comments in a file collapse into one (see
+// the banner comment in grammar.js for the full why).
+#define EXTERNAL_TOKEN_COUNT 6
 
+// Stack depth ceiling for the indent stack. The compiler stress
+// tests under `awsum/test/sources/successful/stress-*` push 300+
+// levels of nested `case` blocks (artificial, not real code) and
+// the layout-stack must hold one entry per opened block. The hard
+// ceiling is set by tree-sitter's per-state serialization buffer
+// (`TREE_SITTER_SERIALIZATION_BUFFER_SIZE = 1024` bytes): with the
+// 3-byte-per-entry packed encoding below and a 3-byte header,
+// `(1024 - 3) / 3 = 340` is the largest stack we can round-trip.
+// 320 leaves a small margin.
+//
+// On overflow the scanner caps `s->len` at MAX_DEPTH on push
+// (dropping deeper levels), and the parse degrades to `(ERROR ...)`
+// rather than crashing.
+#define MAX_DEPTH 320
+
+// `col` is widened to `uint16_t` so deeply-indented stress tests
+// (300+ levels at 2 spaces each → col 600+) don't collapse all
+// distinct indent depths to 255. The high bit is reserved for the
+// `is_let` flag so the serialized form stays at 3 bytes per entry
+// (`col_low`, `col_high|is_let`, `paren_depth`); see serialize /
+// deserialize. Realistic source columns never approach 32K.
 typedef struct {
-  uint8_t col;
+  uint16_t col;
   uint8_t paren_depth;
   uint8_t is_let;
 } StackEntry;
 
+// `len` is `uint16_t` so a stack of 256+ entries doesn't wrap to 0
+// mid-push and clobber the bottom of the stack — the original bug
+// that surfaced as catastrophic ERROR-node clusters on the 300-deep
+// `case` stress test.
 typedef struct {
   StackEntry stack[MAX_DEPTH];
-  uint8_t len;
+  uint16_t len;
   uint8_t paren_depth;
 } Scanner;
 
@@ -93,16 +116,26 @@ void tree_sitter_awsum_external_scanner_destroy(void *payload) {
   free(payload);
 }
 
+// Wire format: 1 byte global paren_depth, 2 bytes len (LE), then
+// 3 bytes per entry: col_low, (col_high | is_let<<7), paren_depth.
+// Packing `is_let` into the col-high bit keeps each entry at 3
+// bytes — same width as the original (uint8_t col, uint8_t pd,
+// uint8_t is_let) layout — so MAX_DEPTH still fits in tree-sitter's
+// 1024-byte serialization buffer despite the col widening.
 unsigned tree_sitter_awsum_external_scanner_serialize(void *payload, char *buffer) {
   Scanner *s = (Scanner *)payload;
   if (s == NULL) return 0;
   unsigned i = 0;
   buffer[i++] = (char)s->paren_depth;
-  buffer[i++] = (char)s->len;
-  for (uint8_t j = 0; j < s->len; j++) {
-    buffer[i++] = (char)s->stack[j].col;
+  buffer[i++] = (char)(s->len & 0xff);
+  buffer[i++] = (char)((s->len >> 8) & 0xff);
+  for (uint16_t j = 0; j < s->len; j++) {
+    uint16_t col = s->stack[j].col & 0x7fff;
+    uint8_t hi = (uint8_t)((col >> 8) & 0x7f);
+    if (s->stack[j].is_let) hi |= 0x80;
+    buffer[i++] = (char)(col & 0xff);
+    buffer[i++] = (char)hi;
     buffer[i++] = (char)s->stack[j].paren_depth;
-    buffer[i++] = (char)s->stack[j].is_let;
   }
   return i;
 }
@@ -112,74 +145,215 @@ void tree_sitter_awsum_external_scanner_deserialize(void *payload, const char *b
   if (s == NULL) return;
   s->len = 0;
   s->paren_depth = 0;
-  if (length < 2) return;
+  if (length < 3) return;
   s->paren_depth = (uint8_t)buffer[0];
-  uint8_t n = (uint8_t)buffer[1];
+  uint16_t n = (uint16_t)((uint8_t)buffer[1] | ((uint8_t)buffer[2] << 8));
   if (n > MAX_DEPTH) n = MAX_DEPTH;
-  if ((unsigned)(2 + 3u * n) > length) n = (uint8_t)((length - 2) / 3);
+  if ((unsigned)(3 + 3u * n) > length) n = (uint16_t)((length - 3) / 3);
   s->len = n;
-  for (uint8_t j = 0; j < n; j++) {
-    s->stack[j].col = (uint8_t)buffer[2 + 3 * j];
-    s->stack[j].paren_depth = (uint8_t)buffer[2 + 3 * j + 1];
-    s->stack[j].is_let = (uint8_t)buffer[2 + 3 * j + 2];
+  for (uint16_t j = 0; j < n; j++) {
+    uint8_t lo = (uint8_t)buffer[3 + 3 * j];
+    uint8_t hi = (uint8_t)buffer[3 + 3 * j + 1];
+    s->stack[j].is_let = (hi & 0x80) ? 1 : 0;
+    s->stack[j].col = (uint16_t)(lo | ((hi & 0x7f) << 8));
+    s->stack[j].paren_depth = (uint8_t)buffer[3 + 3 * j + 2];
   }
 }
 
-static bool skip_whitespace(TSLexer *lexer) {
+// Skip whitespace AND comments inline. Consuming comments here
+// (via `advance(true)`, marking the chars as extras) is what lets
+// the scanner make layout decisions on the column of the actual
+// next non-extras token, instead of stalling on a comment-start
+// and hoping tree-sitter's `extras` cycle re-invokes us at the
+// right place. The extras cycle is unreliable for layout-sensitive
+// grammars: on inputs like a `case … of` with an indented comment
+// before the first arm we observed it either failing to advance or
+// losing saw_newline state. Same pattern as tree-sitter-elm's
+// inline block-comment skip during indent measurement (lines 366–
+// 449 of its scanner.c) — block-comment-skip in the scanner is
+// effectively required for layout-sensitive grammars with nestable
+// block comments.
+//
+// **Boundary-column / boundary-char tracking.** Tree-sitter's
+// scanner API gives us only 1-char peek and no rewind. A `'-'` at
+// the current position can start either a `--` line comment, a
+// `->` arrow, or a negative-integer literal (`do\n  -705`) — to
+// disambiguate we have to advance past it. If it turns out not to
+// be a comment, the lexer's `get_column` / `lookahead` are now
+// past the `-`, and:
+//   • Layout decisions get the wrong col (col 3 of `7` instead of
+//     col 2 of `-`), so `LAYOUT_OPEN` pushes the wrong baseline
+//     and the next sibling gets read as a dedent.
+//   • The `'i'` peek for the `in`-keyword close sees the digit
+//     after `-`, not the boundary char.
+// Fix: snapshot col + char BEFORE any speculative advance and
+// return them via out parameters. Callers MUST use these instead
+// of `get_column` / `lookahead` after `skip_extras` returns.
+//
+// Block comments support nesting (`{- {- inner -} outer -}`) via
+// a counter — closes the gap that the regex-based `block_comment`
+// extras token can't, since the negated-class regex stops at the
+// first `-}` regardless of depth.
+static bool skip_extras(TSLexer *lexer, uint32_t *boundary_col, int32_t *boundary_char) {
   bool saw_newline = false;
   while (true) {
     int32_t c = lexer->lookahead;
+    // Snapshot col + char BEFORE any advance — if `c` turns out
+    // not to start an extras run (line comment / block comment)
+    // the boundary the caller wants is `c` at this col, not
+    // whatever the lexer points at after our speculative advance.
+    uint32_t pre_advance_col = lexer->get_column(lexer);
     if (c == '\n') {
       saw_newline = true;
       lexer->advance(lexer, true);
     } else if (c == '\r' || c == ' ' || c == '\t') {
       lexer->advance(lexer, true);
+    } else if (c == '-') {
+      lexer->advance(lexer, true);
+      if (lexer->lookahead != '-') {
+        // Not a line comment — `-` was the start of an arrow
+        // (`->`) or a negative-integer literal. We've advanced
+        // past it (no rewind in tree-sitter's lexer API); restore
+        // the boundary view via the snapshot.
+        if (boundary_col) *boundary_col = pre_advance_col;
+        if (boundary_char) *boundary_char = c;
+        return saw_newline;
+      }
+      lexer->advance(lexer, true);
+      while (!lexer->eof(lexer) && lexer->lookahead != '\n') {
+        lexer->advance(lexer, true);
+      }
+    } else if (c == '{') {
+      lexer->advance(lexer, true);
+      if (lexer->lookahead != '-') {
+        // Not a block comment — `{` was a real expression token.
+        if (boundary_col) *boundary_col = pre_advance_col;
+        if (boundary_char) *boundary_char = c;
+        return saw_newline;
+      }
+      lexer->advance(lexer, true);
+      uint32_t nesting = 1;
+      while (nesting > 0 && !lexer->eof(lexer)) {
+        int32_t cc = lexer->lookahead;
+        if (cc == '{') {
+          lexer->advance(lexer, true);
+          if (lexer->lookahead == '-') {
+            lexer->advance(lexer, true);
+            nesting++;
+          }
+        } else if (cc == '-') {
+          lexer->advance(lexer, true);
+          if (lexer->lookahead == '}') {
+            lexer->advance(lexer, true);
+            nesting--;
+          }
+        } else {
+          if (cc == '\n') saw_newline = true;
+          lexer->advance(lexer, true);
+        }
+      }
     } else {
-      break;
+      // Genuine non-extras token start: report its col + char.
+      if (boundary_col) *boundary_col = pre_advance_col;
+      if (boundary_char) *boundary_char = c;
+      return saw_newline;
     }
   }
-  return saw_newline;
 }
 
-static uint8_t clamp_col(uint32_t col) {
-  return (uint8_t)(col > 255 ? 255 : col);
+// Clamp to 32767 — uint16_t minus the high bit reserved for is_let
+// in the serialized form (see serialize). 32K columns is far beyond
+// any realistic source line.
+static uint16_t clamp_col(uint32_t col) {
+  return (uint16_t)(col > 32767 ? 32767 : col);
 }
-
 
 bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
   Scanner *s = (Scanner *)payload;
 
+  // Pin every layout-token emit at scan-call-start (zero-width)
+  // BEFORE we advance through ws + comments inside `skip_extras`.
+  // Without this pin, mark_end would default to the post-skip
+  // position and the emitted LAYOUT_* token's range would cover any
+  // intervening block_comment / line_comment chars. Tree-sitter then
+  // (a) consumes those chars as part of the layout token, hiding
+  // them from extras processing — which means highlighting queries
+  // `(block_comment) @comment` get nothing, AND (b) — the runaway
+  // we're chasing — appears to cause a GLR fork explosion when a
+  // block_comment in the layout-token range collides with an
+  // earlier-in-file block_comment matched as extras (minimal repro:
+  // `{-x-}\nf c = case c of\n  {-y-}\n  X -> 1`). Pinning at scan-
+  // start makes layout tokens truly zero-width, so the block_comment
+  // is matched only once — by tree-sitter's internal lexer as extras
+  // after the parser shifts the layout token.
+  //
+  // Real-content tokens (PAREN_OPEN, PAREN_CLOSE, BLOCK_COMMENT)
+  // call `mark_end` again at their post-advance position so the
+  // token spans the actual content.
+  lexer->mark_end(lexer);
+
+  // Error-recovery guard. Tree-sitter sets EVERY `valid_symbols`
+  // entry to true when it has hit a parse error and is searching for
+  // any token that could continue the parse. Without this guard, the
+  // scanner happily emits a layout token on every recovery probe,
+  // each of which spawns a fresh parser fork — and on inputs that
+  // already pushed the parser into recovery (an indented comment
+  // between a block opener and its first sibling, a stray `-` not
+  // forming `--`, …) the fork count grows exponentially, eating
+  // gigabytes of memory in seconds. Returning false here lets tree-
+  // sitter's error-recovery code path do its bounded thing instead.
+  // Same pattern as `in_error_recovery` in tree-sitter-elm.
+  bool all_valid = true;
+  for (int i = 0; i < EXTERNAL_TOKEN_COUNT; i++) {
+    if (!valid_symbols[i]) {
+      all_valid = false;
+      break;
+    }
+  }
+  if (all_valid) {
+    return false;
+  }
+
   // LAYOUT_OPEN / LET_OPEN — push a new (column, paren_depth, is_let)
   // entry onto the indent stack. The grammar uses LET_OPEN after the
   // `let` keyword and LAYOUT_OPEN after `do` / `of`; only one of the
-  // two is in valid_symbols at any given parse state. The is_let flag
-  // gates the `in`-keyword peek that closes a single-line let block —
-  // without it, a `case`-arm body containing a multi-line let would
-  // see the same `in` keyword and erroneously close the surrounding
-  // case.
+  // two is in valid_symbols at any given parse state.
   if (valid_symbols[LAYOUT_OPEN] || valid_symbols[LET_OPEN]) {
     bool is_let = valid_symbols[LET_OPEN];
-    skip_whitespace(lexer);
-    uint32_t col = lexer->get_column(lexer);
+    uint32_t col = 0;
+    int32_t bc = 0;
+    skip_extras(lexer, &col, &bc);
     bool at_eof = lexer->eof(lexer);
+    (void)bc; // unused at LAYOUT_OPEN — only the col is pushed.
     if (s != NULL && s->len < MAX_DEPTH) {
-      uint8_t base = at_eof ? 0 : clamp_col(col);
+      uint16_t base = at_eof ? 0 : clamp_col(col);
       s->stack[s->len].col = base;
       s->stack[s->len].paren_depth = s->paren_depth;
       s->stack[s->len].is_let = is_let ? 1 : 0;
       s->len++;
     }
-    lexer->mark_end(lexer);
+    // mark_end was pinned at scan-call-start at the very top of
+    // `scan`; don't re-call here, so the LAYOUT_OPEN token stays
+    // zero-width and the block_comment / line_comment skipped by
+    // `skip_extras` is matched again by tree-sitter's internal
+    // lexer as proper extras after the parser shifts this token.
     lexer->result_symbol = is_let ? LET_OPEN : LAYOUT_OPEN;
     return true;
   }
 
-  // Walk past whitespace and newlines. saw_newline is recorded for
-  // the top-level (stack-empty) emit rule.
-  bool saw_newline = skip_whitespace(lexer);
-  uint32_t col = lexer->get_column(lexer);
+  // Walk past whitespace, newlines AND comments. saw_newline is
+  // recorded for the top-level (stack-empty) emit rule. The
+  // boundary col + char tracked by `skip_extras` are what every
+  // layout comparison below wants — using `lexer->get_column` /
+  // `lexer->lookahead` here would be wrong on the path where
+  // `skip_extras` advanced past a `-` that turned out to be a
+  // negative-integer literal (or `->` arrow) rather than a `--`
+  // comment: the lexer's col is then one past the `-`, and its
+  // lookahead is the digit / `>` after `-`, not the `-` itself.
+  uint32_t col = 0;
+  int32_t c = 0;
+  bool saw_newline = skip_extras(lexer, &col, &c);
   bool at_eof = lexer->eof(lexer);
-  int32_t c = lexer->lookahead;
 
   bool need_end = valid_symbols[LAYOUT_END];
   bool need_close = valid_symbols[LAYOUT_CLOSE];
@@ -196,23 +370,6 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
   // arm boundary, and the `(` would get absorbed into the previous
   // arm's body as if it were an application argument.
 
-  // IN_KEYWORD — must be tried before LAYOUT_CLOSE-on-dedent: if the
-  // parser has both the close and the in-body branches alive, the
-  // scanner mustn't emit LAYOUT_CLOSE first and lock the parser into
-  // the no-body branch when the source actually has `in body`.
-  //
-  // We pin the token start with `mark_end` at the current position
-  // BEFORE the speculative `i`/`n` advances. On `match_in_keyword`
-  // success we update `mark_end` to span the full `in` token; on
-  // failure the earlier `mark_end` (zero-width at the original
-  // position) is the one tree-sitter sees, so the speculative
-  // advances don't leak into the next regular-tokenizer call.
-  // Without the early `mark_end`, a near-miss like `i7` (an
-  // identifier starting with `i`) would advance past `i`, return
-  // false from the scanner, and the regular tokenizer would resume
-  // from `7` — silently dropping the `i` and parsing the wrong
-  // identifier shape.
-
   if (s != NULL && s->len > 0 && (need_end || need_close)) {
     StackEntry top = s->stack[s->len - 1];
 
@@ -224,60 +381,99 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
       // fall through to paren / no-emit logic below
     } else if (at_eof) {
       // EOF inside a block: close one level. Repeated calls drain
-      // the rest.
+      // the rest. mark_end stays pinned at scan-call-start.
       if (need_close) {
         s->len--;
-        lexer->mark_end(lexer);
         lexer->result_symbol = LAYOUT_CLOSE;
         return true;
       }
       if (need_end) {
         // EOF with only LAYOUT_END valid: emit so the surrounding
         // repeat exits and the next scan call closes the block.
-        lexer->mark_end(lexer);
         lexer->result_symbol = LAYOUT_END;
         return true;
       }
     } else {
-      uint8_t ucol = clamp_col(col);
-      if (ucol < top.col) {
-        // Dedent into outer scope: emit LAYOUT_CLOSE whenever the
-        // next non-whitespace column is strictly less than the
-        // current block's baseline. The same-line continuation case
-        // `(multi\n  line) "a"` (where after `)` the next token
-        // sits at col < block-baseline) is already handled by the
-        // paren_depth check above — while inside the parens
-        // (s->paren_depth > top.paren_depth), layout is suppressed,
-        // and once the matching `)` pops paren_depth back, the
-        // scanner is called for the regular continuation tokens
-        // before any layout decision.
+      uint16_t ucol = clamp_col(col);
+      if (ucol < top.col && saw_newline) {
+        // Dedent into outer scope, emitted ONLY across a newline:
+        // a let-binding's value can be a parens-form whose closing
+        // `)` lands at a column smaller than the let-block's
+        // baseline (`let b = (1\n  ) (3)`), and after the
+        // PAREN_CLOSE pops paren_depth back to the let-block's
+        // depth the next non-extras char is on the SAME line as
+        // the `)` — that's an expression continuation, not a
+        // layout decision, so we must not close on it. The
+        // saw_newline gate distinguishes a real dedent (after the
+        // newline that precedes the lower-column token) from a
+        // bare same-line lower-column position.
         //
         // Chained closes (multi-level dedent across consecutive
-        // scan calls without re-crossing a newline) work naturally
-        // here: each pop fires whenever the new top.col still
-        // exceeds the current column.
+        // scan calls without re-crossing a newline) still work
+        // here: each subsequent scan call hits skip_extras with
+        // no newline to consume but with saw_newline set true on
+        // the first call (the lookahead position hasn't moved
+        // since), and tree-sitter calls the scanner repeatedly
+        // until it stops emitting close.
         //
         // Suppress close when the next char begins a `|>` / `++`
         // operator — the parser must be free to extend the current
         // expression across the dedent.
         if (c != '|' && c != '+' && need_close) {
           s->len--;
-          lexer->mark_end(lexer);
           lexer->result_symbol = LAYOUT_CLOSE;
           return true;
         }
-      } else if (ucol == top.col) {
-        // Sibling boundary. Wins over PAREN_OPEN below.
+      } else if (ucol == top.col && saw_newline) {
+        // Sibling boundary, also gated on a newline so a parens-
+        // form ending at the block's baseline col on the same
+        // line doesn't prematurely separate siblings. Wins over
+        // PAREN_OPEN below.
         if (need_end) {
-          lexer->mark_end(lexer);
           lexer->result_symbol = LAYOUT_END;
           return true;
         }
       } else {
         // ucol > top.col — same line as the opener (single-line
-        // let) or a continuation line. There is no column-based
-        // close trigger here; the `in` keyword path closes single-
-        // line let blocks via the IN_KEYWORD external token.
+        // let) or a continuation line. The only legitimate close
+        // trigger here is the `in` keyword inside a let-block:
+        // `let x = e in body` on a single physical line never
+        // dedents, but the let-block must still close before `in`
+        // can be tokenised as a keyword (tree-sitter's regular
+        // lexer otherwise lexes it as `lower_id`, the let-binding's
+        // value swallows `in` as an application argument, and the
+        // parser fails). Emit a zero-width LAYOUT_CLOSE on lookahead
+        // `in` when the top frame is a let-block at the SAME paren
+        // depth — same-paren-depth so a stray `in` inside a parens
+        // expression that opened after the let doesn't trigger.
+        if (need_close && top.is_let && s->paren_depth == top.paren_depth
+            && c == 'i') {
+          // Peek the next char without committing — we don't want to
+          // consume `in` itself; that's the regular lexer's job.
+          // The mark_end at scan-call-start keeps this token zero-width
+          // regardless of what we advance through here.
+          lexer->advance(lexer, false);
+          int32_t c2 = lexer->lookahead;
+          if (c2 == 'n') {
+            lexer->advance(lexer, false);
+            int32_t c3 = lexer->lookahead;
+            // `in` must be a complete token — not a prefix of a
+            // longer identifier (`integer`, `index`, `info`, …).
+            bool ident_cont =
+              (c3 >= 'a' && c3 <= 'z') ||
+              (c3 >= 'A' && c3 <= 'Z') ||
+              (c3 >= '0' && c3 <= '9') ||
+              c3 == '_' || c3 == '\'';
+            if (!ident_cont) {
+              s->len--;
+              lexer->result_symbol = LAYOUT_CLOSE;
+              return true;
+            }
+          }
+          // Not `in` — fall through. The advances above are
+          // discarded because mark_end was pinned at scan-call-start
+          // and we never re-mark.
+        }
       }
     }
   }
@@ -288,24 +484,31 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
   // update the paren-depth counter. Routing parens through the
   // scanner is what gives layout-token suppression a usable signal
   // inside parens.
+  //
+  // Each branch re-calls `mark_end` AFTER `advance` so the emitted
+  // token spans the `(` / `)` character. The top-of-scan `mark_end`
+  // pinned the default at scan-call-start (for zero-width layout
+  // tokens); these real-content tokens override it.
   if (!at_eof && c == '(' && valid_symbols[PAREN_OPEN]) {
     lexer->advance(lexer, false);
     if (s != NULL && s->paren_depth < 255) s->paren_depth++;
+    lexer->mark_end(lexer);
     lexer->result_symbol = PAREN_OPEN;
     return true;
   }
   if (!at_eof && c == ')' && valid_symbols[PAREN_CLOSE]) {
     lexer->advance(lexer, false);
     if (s != NULL && s->paren_depth > 0) s->paren_depth--;
+    lexer->mark_end(lexer);
     lexer->result_symbol = PAREN_CLOSE;
     return true;
   }
 
   // Top-level (stack empty) LAYOUT_END: emitted after crossing a
   // newline that lands on column 0 (or at EOF). The in-block layout
-  // logic above doesn't reach here when stack is empty.
+  // logic above doesn't reach here when stack is empty. mark_end
+  // stays pinned at scan-call-start (zero-width).
   if (need_end && (s == NULL || s->len == 0) && saw_newline && (col == 0 || at_eof)) {
-    lexer->mark_end(lexer);
     lexer->result_symbol = LAYOUT_END;
     return true;
   }
