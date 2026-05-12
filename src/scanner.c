@@ -394,6 +394,32 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
         return true;
       }
     } else {
+      // An enclosing `)` is about to close a paren that was open at
+      // the moment this block was opened (top.paren_depth captured
+      // that depth at LAYOUT_OPEN / LET_OPEN; we're back at the same
+      // depth now). The block must close before that paren can —
+      // otherwise the inner case/do/let stays open across the
+      // boundary and the parser falls into error recovery (e.g.
+      //   `case (case True of True -> 1 False -> 2) of …`,
+      //   `(let x = 1)` without an `in`,
+      //   `(do x <- e; pureEither x)`).
+      //
+      // Gate on `top.paren_depth > 0`: a `)` at top.paren_depth == 0
+      // is malformed input — there was no wrapping paren when the
+      // block opened, so closing the block on a stray `)` would mask
+      // a real error.
+      //
+      // Chained closes (multiple blocks wrapped by the same `)`)
+      // work via repeated scan calls: each emission pops one stack
+      // entry without advancing the lexer, so the next call sees the
+      // same `)` and closes the next layer until the stack at this
+      // paren depth is drained — then PAREN_CLOSE fires below.
+      if (need_close && !at_eof && c == ')' && top.paren_depth > 0
+          && s->paren_depth == top.paren_depth) {
+        s->len--;
+        lexer->result_symbol = LAYOUT_CLOSE;
+        return true;
+      }
       uint16_t ucol = clamp_col(col);
       if (ucol < top.col && saw_newline) {
         // Dedent into outer scope, emitted ONLY across a newline:

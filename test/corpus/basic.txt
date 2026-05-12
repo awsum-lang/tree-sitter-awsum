@@ -143,3 +143,54 @@ answer = foo |> bar |> baz
         (lower_id)
         (lower_id))
       (lower_id))))
+
+==================
+Parens-wrapped case as case scrutinee
+==================
+
+type T = A | B
+
+main : T -> T
+main x =
+  case (case x of
+          A -> B
+          B -> A) of
+    A -> A
+    B -> B
+
+---
+
+(source_file
+  (type_decl
+    name: (upper_id)
+    (con_def
+      name: (upper_id))
+    (con_def
+      name: (upper_id)))
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (upper_id)
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    parameter: (lower_id)
+    body: (case_expr
+      scrutinee: (case_expr
+        scrutinee: (lower_id)
+        (case_arm
+          pattern: (pattern_constructor
+            (upper_id))
+          body: (upper_id))
+        (case_arm
+          pattern: (pattern_constructor
+            (upper_id))
+          body: (upper_id)))
+      (case_arm
+        pattern: (pattern_constructor
+          (upper_id))
+        body: (upper_id))
+      (case_arm
+        pattern: (pattern_constructor
+          (upper_id))
+        body: (upper_id)))))
