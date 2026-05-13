@@ -1,0 +1,40 @@
+{
+  "grammars": [
+    {
+      "name": "awsum",
+      "camelcase": "Awsum",
+      "scope": "source.awsum",
+      "path": ".",
+      "file-types": [
+        "aww"
+      ],
+      "highlights": [
+        "queries/highlights.scm"
+      ]
+    }
+  ],
+  "metadata": {
+    "version": "0.0.4",
+    "license": "MIT",
+    "description": "Awsum grammar for tree-sitter",
+    "authors": [
+      {
+        "name": "Vladimir Logachev",
+        "email": "vladimir@logachev.dev"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/awsum-lang/tree-sitter-awsum",
+      "homepage": "https://awsum-lang.org"
+    }
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "rust": false,
+    "swift": false,
+    "zig": false
+  }
+}

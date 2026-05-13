@@ -1,0 +1,21 @@
+name: Check and Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      # "synchronize" means new commits pushed to the HEAD of the pull request branch
+      - synchronize
+
+concurrency:
+  # Cancel the previous run of the same workflow on the same branch.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # But don't cancel the workflow runs on the main branch.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      upload-artifacts:
+        description: "Upload the packed .tgz as a workflow artifact (consumed by the release workflow)."
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.14
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `tree-sitter.json#metadata.version` must match `package.json#version`
+      # — both ship in the npm tarball and inconsistency would mean the
+      # registry UI shows one number while the grammar metadata claims another.
+      # See `awsum-zed/build.rs` for the same kind of guard in the Zed extension.
+      - name: Verify version sync between package.json and tree-sitter.json
+        run: |
+          set -euo pipefail
+          pkg_v=$(node -p 'require("./package.json").version')
+          ts_v=$(node -p 'require("./tree-sitter.json").metadata.version')
+          if [[ "$pkg_v" != "$ts_v" ]]; then
+            echo "Version drift: package.json=$pkg_v, tree-sitter.json=$ts_v" >&2
+            exit 1
+          fi
+
+      # Regenerate `src/parser.c`, `src/grammar.json`, `src/node-types.json`
+      # from `grammar.js`. Combined with the warning + diff checks below, this
+      # catches stale generated artefacts and grammar warnings before they ship.
+      # `tree-sitter generate` exits 0 on warnings, so we have to scan stderr
+      # ourselves to fail on them.
+      - name: Regenerate parser (fail on warnings)
+        run: |
+          set -euo pipefail
+          output=$(npx tree-sitter generate 2>&1)
+          printf '%s\n' "$output"
+          if printf '%s\n' "$output" | grep -qE '^Warning:'; then
+            echo "::error::tree-sitter generate emitted warnings — fix them in grammar.js / tree-sitter.json." >&2
+            exit 1
+          fi
+
+      - name: Verify committed parser matches grammar.js
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- src/grammar.json src/node-types.json src/parser.c; then
+            echo "Committed generated files drifted from grammar.js — run \`just generate\` and commit the result." >&2
+            exit 1
+          fi
+
+      - name: Run corpus tests
+        run: npx tree-sitter test
+
+      - name: Read version
+        if: inputs.upload-artifacts
+        id: version
+        run: echo "value=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+
+      # `npm pack` produces `tree-sitter-awsum-X.Y.Z.tgz` from the `files`
+      # glob in package.json — the same tarball npm registry would serve.
+      - name: Pack tarball
+        if: inputs.upload-artifacts
+        run: npm pack
+
+      - name: Upload .tgz artifact
+        if: inputs.upload-artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: tree-sitter-awsum-${{ steps.version.outputs.value }}-tgz
+          path: "*.tgz"
+          if-no-files-found: error
+          retention-days: 7

@@ -1,6 +1,6 @@
 {
   "name": "tree-sitter-awsum",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Awsum grammar for tree-sitter",
   "license": "MIT",
   "homepage": "https://github.com/awsum-lang/tree-sitter-awsum",
@@ -16,30 +16,23 @@
   "main": "bindings/node",
   "files": [
     "grammar.js",
+    "tree-sitter.json",
     "src/parser.c",
+    "src/scanner.c",
     "src/grammar.json",
     "src/node-types.json",
     "src/tree_sitter/parser.h",
     "queries/*.scm"
   ],
   "dependencies": {
-    "node-addon-api": "^7.1.1",
+    "node-addon-api": "^8.7.0",
     "node-gyp-build": "^4.8.4"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.25.0"
+    "tree-sitter-cli": "^0.26.0"
   },
   "scripts": {
     "generate": "tree-sitter generate",
     "test": "tree-sitter test"
-  },
-  "tree-sitter": [
-    {
-      "scope": "source.awsum",
-      "file-types": [
-        "aww"
-      ],
-      "highlights": "queries/highlights.scm"
-    }
-  ]
+  }
 }

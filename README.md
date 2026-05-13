@@ -44,8 +44,8 @@ just test-tree-sitter-property   # property only — slow, ~100 generated progra
 
 Both recipes regenerate `src/parser.c` from `grammar.js` first and require:
 
-- `tree-sitter` CLI on PATH (e.g. `brew install tree-sitter` or `npm install -g tree-sitter-cli`).
 - This repo (`tree-sitter-awsum/`) checked out next to `awsum/`, or `TREE_SITTER_AWSUM_DIR` set to its path.
+- `node_modules/` populated inside it (`npm ci`). The compiler-side recipes invoke `npx tree-sitter` and the Haskell spec calls `node_modules/.bin/tree-sitter` directly — both deliberately ignore any global `tree-sitter` binary so the version pinned in this repo's `package-lock.json` is the only one that runs.
 
 If either is missing, the test-suite falls back to a single `pendingWith` and the rest of the (compiler-side) test suite is unaffected.
 
