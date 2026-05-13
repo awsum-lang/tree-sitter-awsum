@@ -1294,10 +1294,6 @@
     [
       "_atom",
       "_pattern"
-    ],
-    [
-      "pattern_ascribe",
-      "parens_pattern"
     ]
   ],
   "precedences": [],

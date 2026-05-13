@@ -102,11 +102,6 @@ module.exports = grammar({
     // the prefix `(_id`; tree-sitter needs to fork until `<-` (or its
     // absence) decides.
     [$._atom, $._pattern],
-    // `(name :` could be the start of a `pattern_ascribe` or a
-    // `parens_pattern` whose inner pattern is being ascribed. The
-    // grammar lets both shapes match `( _pattern` — fork until `:`
-    // or `)` decides.
-    [$.pattern_ascribe, $.parens_pattern],
   ],
 
   rules: {
