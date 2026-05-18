@@ -79,15 +79,27 @@
 
 ; ─── Types in signatures / type decls ───────────────────────────────────────
 ;
-; All `upper_id`s outside an explicit constructor or type-decl-name slot
-; are treated as type references. This is over-broad (constructor uses in
-; expressions also become @type), but the LSP delivers the precise
-; semantic-token map; tree-sitter just paints the raw shape.
+; The grammar's `_type` is a choice (union_type / arrow_type / type_app /
+; _type_atom), and `_type_atom` is an alias — a bare type reference like
+; `Int32` in `unused : Int32` appears directly as `upper_id` in the type
+; field of whichever type-shape node holds it. Each type-position field
+; needs its own query; tree-sitter has no "any descendant" predicate that
+; would cover them all in one rule. Constructor uses in expressions also
+; become @type; the LSP delivers the precise semantic-token map.
 
 (arrow_type) @_arrow
 (union_type) @_union
 (type_app) @_app
 
+; Bare type leaves — field-anchored so the rule fires when the field's
+; value is a plain `upper_id` (and not a nested type_app / arrow_type).
+(signature type: (upper_id) @type)
+(arrow_type domain: (upper_id) @type)
+(arrow_type codomain: (upper_id) @type)
+(union_type left: (upper_id) @type)
+(union_type right: (upper_id) @type)
+
+; Applied types — `Maybe Int32`, `Either A B`.
 ((type_app callee: (upper_id) @type)
   (#match? @type "^[A-Z]"))
 ((type_app arg: (upper_id) @type)
