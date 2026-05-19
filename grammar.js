@@ -336,9 +336,15 @@ module.exports = grammar({
       $.upper_id,
       $.lower_id,
       seq(alias($._paren_open, '('), $._expr, alias($._paren_close, ')')),
+      $.expr_ascribe,
       $.string,
       $.integer,
     ),
+    // Expression-level type ascription `(e : T)`. Shares the `(` prefix
+    // with the parens-wrapped expression atom; tree-sitter forks on the
+    // post-expr `:` vs `)` lookahead — same shape as the
+    // `pattern_ascribe` / `parens_pattern` pairing on the pattern side.
+    expr_ascribe: $ => seq(alias($._paren_open, '('), $._expr, ':', $._type, alias($._paren_close, ')')),
 
     // Qualified identifier: at least one `Mod.` prefix, then a lower id.
     // Disambiguated from a sequence of `Mod` atoms in App by the dot.

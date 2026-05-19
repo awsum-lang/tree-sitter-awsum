@@ -24,6 +24,10 @@
           "named": true
         },
         {
+          "type": "expr_ascribe",
+          "named": true
+        },
+        {
           "type": "integer",
           "named": true
         },
@@ -165,6 +169,10 @@
             "named": true
           },
           {
+            "type": "expr_ascribe",
+            "named": true
+          },
+          {
             "type": "integer",
             "named": true
           },
@@ -252,6 +260,10 @@
           },
           {
             "type": "do_block",
+            "named": true
+          },
+          {
+            "type": "expr_ascribe",
             "named": true
           },
           {
@@ -367,6 +379,10 @@
           "named": true
         },
         {
+          "type": "expr_ascribe",
+          "named": true
+        },
+        {
           "type": "integer",
           "named": true
         },
@@ -456,6 +472,10 @@
             "named": true
           },
           {
+            "type": "expr_ascribe",
+            "named": true
+          },
+          {
             "type": "integer",
             "named": true
           },
@@ -539,6 +559,10 @@
           "named": true
         },
         {
+          "type": "expr_ascribe",
+          "named": true
+        },
+        {
           "type": "integer",
           "named": true
         },
@@ -605,6 +629,81 @@
     }
   },
   {
+    "type": "expr_ascribe",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "app",
+          "named": true
+        },
+        {
+          "type": "arrow_type",
+          "named": true
+        },
+        {
+          "type": "case_expr",
+          "named": true
+        },
+        {
+          "type": "concat_expr",
+          "named": true
+        },
+        {
+          "type": "do_block",
+          "named": true
+        },
+        {
+          "type": "expr_ascribe",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        },
+        {
+          "type": "lambda",
+          "named": true
+        },
+        {
+          "type": "let_expr",
+          "named": true
+        },
+        {
+          "type": "lower_id",
+          "named": true
+        },
+        {
+          "type": "pipe_expr",
+          "named": true
+        },
+        {
+          "type": "qname",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "type_app",
+          "named": true
+        },
+        {
+          "type": "union_type",
+          "named": true
+        },
+        {
+          "type": "upper_id",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "fun_def",
     "named": true,
     "fields": {
@@ -634,6 +733,10 @@
           },
           {
             "type": "do_block",
+            "named": true
+          },
+          {
+            "type": "expr_ascribe",
             "named": true
           },
           {
@@ -762,6 +865,10 @@
           },
           {
             "type": "do_block",
+            "named": true
+          },
+          {
+            "type": "expr_ascribe",
             "named": true
           },
           {
@@ -919,6 +1026,10 @@
             "named": true
           },
           {
+            "type": "expr_ascribe",
+            "named": true
+          },
+          {
             "type": "integer",
             "named": true
           },
@@ -984,6 +1095,10 @@
           },
           {
             "type": "do_block",
+            "named": true
+          },
+          {
+            "type": "expr_ascribe",
             "named": true
           },
           {
@@ -1171,6 +1286,10 @@
         },
         {
           "type": "do_block",
+          "named": true
+        },
+        {
+          "type": "expr_ascribe",
           "named": true
         },
         {

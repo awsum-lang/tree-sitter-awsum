@@ -1042,11 +1042,50 @@
         },
         {
           "type": "SYMBOL",
+          "name": "expr_ascribe"
+        },
+        {
+          "type": "SYMBOL",
           "name": "string"
         },
         {
           "type": "SYMBOL",
           "name": "integer"
+        }
+      ]
+    },
+    "expr_ascribe": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_open"
+          },
+          "named": false,
+          "value": "("
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_expr"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_type"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_paren_close"
+          },
+          "named": false,
+          "value": ")"
         }
       ]
     },
