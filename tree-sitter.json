@@ -15,7 +15,7 @@
   ],
   "metadata": {
     "version": "0.0.4",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "description": "Awsum grammar for tree-sitter",
     "authors": [
       {

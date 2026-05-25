@@ -2,7 +2,7 @@
   "name": "tree-sitter-awsum",
   "version": "0.0.4",
   "description": "Awsum grammar for tree-sitter",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/awsum-lang/tree-sitter-awsum",
   "repository": {
     "type": "git",
@@ -22,7 +22,8 @@
     "src/grammar.json",
     "src/node-types.json",
     "src/tree_sitter/parser.h",
-    "queries/*.scm"
+    "queries/*.scm",
+    "NOTICE"
   ],
   "dependencies": {
     "node-addon-api": "^8.7.0",
