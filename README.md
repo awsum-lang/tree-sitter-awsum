@@ -53,6 +53,10 @@ If either is missing, the test-suite falls back to a single `pendingWith` and th
 
 `tree-sitter-awsum` releases follow the `awsum` compiler version one-to-one: `tree-sitter-awsum A.B.C` is built and tested against `awsum A.B.C`. Same lockstep convention as `awsum-vscode` and `awsum-zed`.
 
+## AI use
+
+This Tree-sitter grammar is developed with substantial usage of generative AI. Every generated change is reviewed, edited, and accepted by a human before it lands in the repository, and no output is shipped unedited.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
