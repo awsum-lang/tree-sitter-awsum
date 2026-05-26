@@ -1,0 +1,22 @@
+#!/bin/sh
+# Auto-add the DCO Signed-off-by trailer to every commit in this clone.
+# Installed by `just setup-dev` (which sets core.hooksPath = scripts/git-hooks/).
+# Legal context: CONTRIBUTING.md, section "Developer Certificate of Origin".
+
+set -eu
+
+COMMIT_MSG_FILE=$1
+COMMIT_SOURCE=${2:-}
+
+# Signed-off-by isn't meaningful for a merge commit.
+[ "$COMMIT_SOURCE" = "merge" ] && exit 0
+
+NAME=$(git config user.name)
+EMAIL=$(git config user.email)
+TRAILER="Signed-off-by: $NAME <$EMAIL>"
+
+# Skip if the exact trailer is already there (e.g. user passed -s manually,
+# or this is a cherry-pick of a commit that already carries it).
+grep -qsF -- "$TRAILER" "$COMMIT_MSG_FILE" && exit 0
+
+git interpret-trailers --in-place --trailer "$TRAILER" "$COMMIT_MSG_FILE"
