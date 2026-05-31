@@ -10,6 +10,20 @@ Until `awsum 1.0.0`, the project does not follow SemVer — every release increm
 
 The version lives in two places — `package.json#version` and `tree-sitter.json#metadata.version`. Both must match (the value is embedded in the generated `src/parser.c` from `tree-sitter.json`, and read by npm from `package.json`). CI and `just lint` enforce that they agree, the same way `awsum-zed/build.rs` keeps `Cargo.toml` ↔ `extension.toml` in sync. If Rust / Python bindings are added later under `bindings/`, their per-binding version files (`Cargo.toml`, `pyproject.toml`) must match too, and the guard extends to them.
 
+## [Unreleased]
+
+## [0.0.5] - 2026-05-31
+
+### Added
+
+- **Expression-level type ascription `(e : T)`** — parsed as a dedicated `expr_ascribe` node that shares the `(` prefix with the parens-wrapped expression atom, mirroring the pattern-side `(p : T)`. Tracks the compiler's new expression-position ascription form.
+- `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `NOTICE`; DCO sign-off on contributions via the `prepare-commit-msg` hook (`just setup-dev`).
+
+### Changed
+
+- **License switched from MIT to Apache-2.0** (with an accompanying `NOTICE`).
+- **Type references in signatures highlight via field-anchored rules.** Bare type leaves in `signature` / `arrow_type` / `union_type` type fields now paint as `@type`, replacing the previous over-broad "every `upper_id` outside a constructor slot" heuristic.
+
 ## [0.0.4] - 2026-05-13
 
 ### Added
