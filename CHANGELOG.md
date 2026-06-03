@@ -12,6 +12,12 @@ The version lives in two places — `package.json#version` and `tree-sitter.json
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-06-02
+
+### Changed
+
+- Lockstep release with `awsum` 0.0.6. No grammar or query changes since 0.0.5.
+
 ## [0.0.5] - 2026-05-31
 
 ### Added
