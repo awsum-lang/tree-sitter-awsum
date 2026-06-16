@@ -81,6 +81,51 @@ square n = n
     body: (lower_id)))
 
 ==================
+Function parameter type ascription
+==================
+
+square : Int32 -> Int32
+square (n : Int32) = n
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (upper_id)
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    parameter: (pattern_ascribe
+      (lower_id)
+      (upper_id))
+    body: (lower_id)))
+
+==================
+Lambda parameter type ascription
+==================
+
+f : Int32 -> Int32
+f = \(n : Int32) -> n
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (upper_id)
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    body: (lambda
+      parameter: (pattern_ascribe
+        (lower_id)
+        (upper_id))
+      body: (lower_id))))
+
+==================
 Line comment
 ==================
 
@@ -194,3 +239,82 @@ main x =
         pattern: (pattern_constructor
           (upper_id))
         body: (upper_id)))))
+
+==================
+Own-line let signature
+==================
+
+main =
+  let res : Int32
+      res = n
+   in res
+
+---
+
+(source_file
+  (fun_def
+    name: (lower_id)
+    body: (let_expr
+      (let_signature
+        name: (lower_id)
+        type: (upper_id))
+      (let_binding
+        pattern: (lower_id)
+        value: (lower_id))
+      body: (lower_id))))
+
+==================
+Nested multi-line let
+==================
+
+w : Int32
+w =
+  let x = let y = a
+       in b
+   in c
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (upper_id))
+  (fun_def
+    name: (lower_id)
+    body: (let_expr
+      (let_binding
+        pattern: (lower_id)
+        value: (let_expr
+          (let_binding
+            pattern: (lower_id)
+            value: (lower_id))
+          body: (lower_id)))
+      body: (lower_id))))
+
+==================
+Nested multi-line let in parens
+==================
+
+s : I
+s = (let d = let q = x
+     in m
+ in n
+)
+
+---
+
+(source_file
+  (signature
+    name: (lower_id)
+    type: (upper_id))
+  (fun_def
+    name: (lower_id)
+    body: (let_expr
+      (let_binding
+        pattern: (lower_id)
+        value: (let_expr
+          (let_binding
+            pattern: (lower_id)
+            value: (lower_id))
+          body: (lower_id)))
+      body: (lower_id))))

@@ -102,6 +102,11 @@ module.exports = grammar({
     // the prefix `(_id`; tree-sitter needs to fork until `<-` (or its
     // absence) decides.
     [$._atom, $._pattern],
+    // A let-item starting `n : T …` is a `let_signature` (own-line form)
+    // until a following `=` reveals it was a `let_binding` with an inline
+    // ascription; the binder forks between `let_signature`'s name and the
+    // `_pattern` heading a `let_binding`.
+    [$.let_signature, $._pattern],
   ],
 
   rules: {
@@ -186,7 +191,20 @@ module.exports = grammar({
     _decl_name: $ => choice($.lower_id, $.operator_name),
     operator_name: $ => seq(alias($._paren_open, '('), '++', alias($._paren_close, ')')),
 
-    _param: $ => choice($.lower_id, $._paren_pattern),
+    // A parameter (function definition or lambda — both reach here)
+    // is a bare name, a parens-wrapped destructuring pattern `(p)`, or
+    // a parens-wrapped type ascription `(p : T)`. The ascription form
+    // reuses the `pattern_ascribe` node from the pattern side, so the
+    // `(pattern_ascribe (lower_id) @variable.parameter)` highlight rule
+    // covers it with no query change. `pattern_ascribe` and
+    // `_paren_pattern` share the `(` prefix; tree-sitter forks on the
+    // post-pattern `:` vs `)` lookahead, same as on the `_pattern` side.
+    //
+    // The grammar is lenient by design: it accepts `f (x : T) = …` even
+    // though the typechecker rejects a type annotation on a top-level
+    // parameter (the type comes from the signature). Highlighting is the
+    // grammar's job; the LSP drives diagnostics.
+    _param: $ => choice($.lower_id, $._paren_pattern, $.pattern_ascribe),
     _paren_pattern: $ => seq(alias($._paren_open, '('), $._pattern, alias($._paren_close, ')')),
 
     // ─── Types ──────────────────────────────────────────────────────────────
@@ -252,14 +270,16 @@ module.exports = grammar({
       field('body', $._expr),
     ),
 
-    // `let` introduces a layout block: bindings on subsequent lines at
-    // the same indent are siblings of the first binding. The closing
+    // `let` introduces a layout block: items on subsequent lines at the
+    // same indent are siblings of the first. An item is an ordinary
+    // binding (`pat [: T] = e`) or an own-line signature (`n : T`) whose
+    // definition (`n = e`) follows as the next item. The closing
     // `in body` is optional (a `do`-internal `let` has no `in`).
     let_expr: $ => prec.right(seq(
       'let',
       $._let_open,
-      $.let_binding,
-      repeat(seq($._layout_end, $.let_binding)),
+      $._let_item,
+      repeat(seq($._layout_end, $._let_item)),
       // Scanner always emits `_layout_close` at end of bindings
       // (and pops the let-block stack entry). The optional `'in'
       // body` is then tokenised by tree-sitter's regular keyword
@@ -269,12 +289,32 @@ module.exports = grammar({
       optional(seq('in', field('body', $._expr))),
     )),
 
-    let_binding: $ => seq(
+    // `prec.dynamic(2, ...)` mirrors top-level signature/fun_def: it
+    // biases tree-sitter to start a new let-item over extending the
+    // previous item's type with the next binder. Without it the own-line
+    // `n : T` / `n = e` shape sinks the definition's `n` into the
+    // signature's type as a `type_app` arg (layout-blind, same as the
+    // top-level `foo : T` / `foo n = …` case).
+    _let_item: $ => prec.dynamic(2, choice($.let_signature, $.let_binding)),
+
+    // Own-line signature: `n : T`, with the definition `n = e` on the
+    // next line as its own item. `prec.dynamic(3, …)` (above
+    // `let_binding`'s 2) makes reducing the signature win over extending
+    // its type with the next line's binder; the inline `n : T = e` form
+    // still parses as a `let_binding` because the trailing `=` leaves the
+    // signature interpretation with nowhere to go.
+    let_signature: $ => prec.dynamic(3, seq(
+      field('name', $.lower_id),
+      ':',
+      field('type', $._type),
+    )),
+
+    let_binding: $ => prec.dynamic(2, prec.right(seq(
       field('pattern', $._pattern),
       optional(seq(':', field('binding_type', $._type))),
       '=',
       field('value', $._expr),
-    ),
+    ))),
 
     // `do` introduces a layout block: statements at the same indent
     // are siblings, separated by `_layout_end`.

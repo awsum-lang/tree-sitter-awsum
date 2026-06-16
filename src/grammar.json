@@ -373,6 +373,10 @@
         {
           "type": "SYMBOL",
           "name": "_paren_pattern"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "pattern_ascribe"
         }
       ]
     },
@@ -649,7 +653,7 @@
           },
           {
             "type": "SYMBOL",
-            "name": "let_binding"
+            "name": "_let_item"
           },
           {
             "type": "REPEAT",
@@ -662,7 +666,7 @@
                 },
                 {
                   "type": "SYMBOL",
-                  "name": "let_binding"
+                  "name": "_let_item"
                 }
               ]
             }
@@ -699,55 +703,109 @@
         ]
       }
     },
-    "let_binding": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "FIELD",
-          "name": "pattern",
-          "content": {
+    "_let_item": {
+      "type": "PREC_DYNAMIC",
+      "value": 2,
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
             "type": "SYMBOL",
-            "name": "_pattern"
+            "name": "let_signature"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "let_binding"
           }
-        },
-        {
-          "type": "CHOICE",
+        ]
+      }
+    },
+    "let_signature": {
+      "type": "PREC_DYNAMIC",
+      "value": 3,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "FIELD",
+            "name": "name",
+            "content": {
+              "type": "SYMBOL",
+              "name": "lower_id"
+            }
+          },
+          {
+            "type": "STRING",
+            "value": ":"
+          },
+          {
+            "type": "FIELD",
+            "name": "type",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_type"
+            }
+          }
+        ]
+      }
+    },
+    "let_binding": {
+      "type": "PREC_DYNAMIC",
+      "value": 2,
+      "content": {
+        "type": "PREC_RIGHT",
+        "value": 0,
+        "content": {
+          "type": "SEQ",
           "members": [
             {
-              "type": "SEQ",
+              "type": "FIELD",
+              "name": "pattern",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_pattern"
+              }
+            },
+            {
+              "type": "CHOICE",
               "members": [
                 {
-                  "type": "STRING",
-                  "value": ":"
+                  "type": "SEQ",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": ":"
+                    },
+                    {
+                      "type": "FIELD",
+                      "name": "binding_type",
+                      "content": {
+                        "type": "SYMBOL",
+                        "name": "_type"
+                      }
+                    }
+                  ]
                 },
                 {
-                  "type": "FIELD",
-                  "name": "binding_type",
-                  "content": {
-                    "type": "SYMBOL",
-                    "name": "_type"
-                  }
+                  "type": "BLANK"
                 }
               ]
             },
             {
-              "type": "BLANK"
+              "type": "STRING",
+              "value": "="
+            },
+            {
+              "type": "FIELD",
+              "name": "value",
+              "content": {
+                "type": "SYMBOL",
+                "name": "_expr"
+              }
             }
           ]
-        },
-        {
-          "type": "STRING",
-          "value": "="
-        },
-        {
-          "type": "FIELD",
-          "name": "value",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_expr"
-          }
         }
-      ]
+      }
     },
     "do_block": {
       "type": "PREC_RIGHT",
@@ -1332,6 +1390,10 @@
     ],
     [
       "_atom",
+      "_pattern"
+    ],
+    [
+      "let_signature",
       "_pattern"
     ]
   ],

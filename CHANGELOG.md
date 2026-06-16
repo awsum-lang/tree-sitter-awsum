@@ -12,6 +12,18 @@ The version lives in two places — `package.json#version` and `tree-sitter.json
 
 ## [Unreleased]
 
+### Added
+
+- **Type ascription in parameter position `(p : T)`** — function-definition and lambda parameters now accept the ascription form (`f (x : T) = …`, `\(n : T) -> …`), reusing the existing `pattern_ascribe` node, so the `(pattern_ascribe (lower_id) @variable.parameter)` highlight rule covers it with no query change. Tracks the compiler's parameter type-annotation form; mirrors the pattern-position `(p : T)` and the expression-position `(e : T)` already supported.
+
+### Fixed
+
+- **The layout scanner now parses every well-formed nested layout** — the `tree-sitter-awsum` property suite (arbitrary compiler-generated programs through the real scanner) is green across many thousands of cases. Two scanner bugs were closed:
+  - **Nested and chained multi-line `let`** — `let x = let y = a in b in c` (a `let` whose value is another `let`, parenthesised or not), `let x = p in let y = q in …` chains, and the same shapes inside `case` arms / `do` bodies / lambda bodies. An inner `let`'s `in` used to chain-close the enclosing `let`, dropping the inner body and lexing the outer `in` as an identifier. The scanner now enforces "an `in` closes exactly one `let`" via a column-keyed pending marker that consumes the keyword on the zero-width re-invocation at the same `in`.
+  - **A `|>` / `++` continuation line at a block's baseline column** was mistaken for a new sibling binding/statement/arm (e.g. a multi-line pipe chain a value's layout happened to align on the baseline), producing spurious errors. The sibling-boundary rule now skips operator-led lines, matching the dedent rule — a line starting with an operator is always a continuation.
+
+  Pinned by the `Nested multi-line let` and `Nested multi-line let in parens` corpus tests.
+
 ## [0.0.6] - 2026-06-02
 
 ### Changed
