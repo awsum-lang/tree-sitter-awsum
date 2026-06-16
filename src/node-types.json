@@ -1143,8 +1143,62 @@
         {
           "type": "let_binding",
           "named": true
+        },
+        {
+          "type": "let_signature",
+          "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "let_signature",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "lower_id",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "arrow_type",
+            "named": true
+          },
+          {
+            "type": "lower_id",
+            "named": true
+          },
+          {
+            "type": "type_app",
+            "named": true
+          },
+          {
+            "type": "union_type",
+            "named": true
+          },
+          {
+            "type": "upper_id",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {

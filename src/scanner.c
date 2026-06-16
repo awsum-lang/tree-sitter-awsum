@@ -72,8 +72,8 @@ enum TokenType {
 // the layout-stack must hold one entry per opened block. The hard
 // ceiling is set by tree-sitter's per-state serialization buffer
 // (`TREE_SITTER_SERIALIZATION_BUFFER_SIZE = 1024` bytes): with the
-// 3-byte-per-entry packed encoding below and a 3-byte header,
-// `(1024 - 3) / 3 = 340` is the largest stack we can round-trip.
+// 3-byte-per-entry packed encoding below and a 6-byte header,
+// `(1024 - 6) / 3 = 339` is the largest stack we can round-trip.
 // 320 leaves a small margin.
 //
 // On overflow the scanner caps `s->len` at MAX_DEPTH on push
@@ -101,6 +101,20 @@ typedef struct {
   StackEntry stack[MAX_DEPTH];
   uint16_t len;
   uint8_t paren_depth;
+  // `pending_in` is set when a LAYOUT_CLOSE was just emitted for a
+  // let-block in response to a lookahead `in`, with `pending_in_col`
+  // recording that `in`'s column. The next scan call that lands on an
+  // `in` at the SAME column is the zero-width re-invocation at that
+  // same `in`: it returns without emitting (so the `in` tokenises as
+  // the closed let's keyword) instead of closing the enclosing let. An
+  // `in` at a different column — or any non-`in` token — means this
+  // `in` was already consumed; the flag is stale and cleared. Net
+  // effect: one `in` closes exactly one let. The column key (not a bare
+  // flag) is what keeps a stale pending — left behind when tree-sitter
+  // doesn't re-invoke the scanner at the just-closed `in` — from
+  // suppressing the NEXT let's own `in`.
+  uint8_t pending_in;
+  uint16_t pending_in_col;
 } Scanner;
 
 void *tree_sitter_awsum_external_scanner_create(void) {
@@ -108,6 +122,8 @@ void *tree_sitter_awsum_external_scanner_create(void) {
   if (s != NULL) {
     s->len = 0;
     s->paren_depth = 0;
+    s->pending_in = 0;
+    s->pending_in_col = 0;
   }
   return s;
 }
@@ -116,17 +132,21 @@ void tree_sitter_awsum_external_scanner_destroy(void *payload) {
   free(payload);
 }
 
-// Wire format: 1 byte global paren_depth, 2 bytes len (LE), then
-// 3 bytes per entry: col_low, (col_high | is_let<<7), paren_depth.
-// Packing `is_let` into the col-high bit keeps each entry at 3
-// bytes — same width as the original (uint8_t col, uint8_t pd,
-// uint8_t is_let) layout — so MAX_DEPTH still fits in tree-sitter's
-// 1024-byte serialization buffer despite the col widening.
+// Wire format: 1 byte global paren_depth, 1 byte pending_in, 2 bytes
+// pending_in_col (LE), 2 bytes len (LE), then 3 bytes per entry:
+// col_low, (col_high | is_let<<7), paren_depth. Packing `is_let` into
+// the col-high bit keeps each entry at 3 bytes — same width as the
+// original (uint8_t col, uint8_t pd, uint8_t is_let) layout — so
+// MAX_DEPTH still fits in tree-sitter's 1024-byte serialization buffer
+// despite the col widening.
 unsigned tree_sitter_awsum_external_scanner_serialize(void *payload, char *buffer) {
   Scanner *s = (Scanner *)payload;
   if (s == NULL) return 0;
   unsigned i = 0;
   buffer[i++] = (char)s->paren_depth;
+  buffer[i++] = (char)s->pending_in;
+  buffer[i++] = (char)(s->pending_in_col & 0xff);
+  buffer[i++] = (char)((s->pending_in_col >> 8) & 0xff);
   buffer[i++] = (char)(s->len & 0xff);
   buffer[i++] = (char)((s->len >> 8) & 0xff);
   for (uint16_t j = 0; j < s->len; j++) {
@@ -145,18 +165,22 @@ void tree_sitter_awsum_external_scanner_deserialize(void *payload, const char *b
   if (s == NULL) return;
   s->len = 0;
   s->paren_depth = 0;
-  if (length < 3) return;
+  s->pending_in = 0;
+  s->pending_in_col = 0;
+  if (length < 6) return;
   s->paren_depth = (uint8_t)buffer[0];
-  uint16_t n = (uint16_t)((uint8_t)buffer[1] | ((uint8_t)buffer[2] << 8));
+  s->pending_in = (uint8_t)buffer[1];
+  s->pending_in_col = (uint16_t)((uint8_t)buffer[2] | ((uint8_t)buffer[3] << 8));
+  uint16_t n = (uint16_t)((uint8_t)buffer[4] | ((uint8_t)buffer[5] << 8));
   if (n > MAX_DEPTH) n = MAX_DEPTH;
-  if ((unsigned)(3 + 3u * n) > length) n = (uint16_t)((length - 3) / 3);
+  if ((unsigned)(6 + 3u * n) > length) n = (uint16_t)((length - 6) / 3);
   s->len = n;
   for (uint16_t j = 0; j < n; j++) {
-    uint8_t lo = (uint8_t)buffer[3 + 3 * j];
-    uint8_t hi = (uint8_t)buffer[3 + 3 * j + 1];
+    uint8_t lo = (uint8_t)buffer[6 + 3 * j];
+    uint8_t hi = (uint8_t)buffer[6 + 3 * j + 1];
     s->stack[j].is_let = (hi & 0x80) ? 1 : 0;
     s->stack[j].col = (uint16_t)(lo | ((hi & 0x7f) << 8));
-    s->stack[j].paren_depth = (uint8_t)buffer[3 + 3 * j + 2];
+    s->stack[j].paren_depth = (uint8_t)buffer[6 + 3 * j + 2];
   }
 }
 
@@ -268,6 +292,25 @@ static uint16_t clamp_col(uint32_t col) {
   return (uint16_t)(col > 32767 ? 32767 : col);
 }
 
+// Peek whether the upcoming token is exactly the `in` keyword — not a
+// prefix of a longer identifier (`index`, `info`, …). `first_char` is
+// the boundary char `skip_extras` already returned. Advances the lexer
+// past the peeked characters; callers rely on the scan-start `mark_end`
+// pin to keep any emitted token zero-width and to discard these
+// advances when they return without re-marking (same discipline the
+// in-keyword close has always used).
+static bool lookahead_is_in(TSLexer *lexer, int32_t first_char) {
+  if (first_char != 'i') return false;
+  lexer->advance(lexer, false);
+  if (lexer->lookahead != 'n') return false;
+  lexer->advance(lexer, false);
+  int32_t c3 = lexer->lookahead;
+  bool ident_cont =
+    (c3 >= 'a' && c3 <= 'z') || (c3 >= 'A' && c3 <= 'Z') ||
+    (c3 >= '0' && c3 <= '9') || c3 == '_' || c3 == '\'';
+  return !ident_cont;
+}
+
 bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
   Scanner *s = (Scanner *)payload;
 
@@ -355,6 +398,29 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
   bool saw_newline = skip_extras(lexer, &col, &c);
   bool at_eof = lexer->eof(lexer);
 
+  // Peek ONCE whether the upcoming token is the `in` keyword, and reuse
+  // the result everywhere below. `lookahead_is_in` advances the lexer,
+  // so calling it twice in one scan (e.g. the pending check AND the
+  // in-handler) would make the second call read past the consumed `in`
+  // and return garbage — the bug that dropped the close on a nested
+  // `in`. The advance is harmless: the layout tokens emitted below are
+  // zero-width (mark_end pinned at scan-start), so tree-sitter re-lexes
+  // from scan-start regardless of how far this peek advanced.
+  bool lookahead_in = lookahead_is_in(lexer, c);
+
+  // An `in` closes exactly one let. If the previous scan call closed a
+  // let-block for an `in` at this same column, this is the zero-width
+  // re-invocation at that same `in`: return without emitting so it
+  // tokenises as the closed let's keyword, instead of closing the next
+  // enclosing block. An `in` at a different column — or any non-`in`
+  // token — means that `in` was already consumed; the flag is stale.
+  // Either way the flag is consumed here.
+  if (s != NULL && s->pending_in) {
+    bool same_in = lookahead_in && clamp_col(col) == s->pending_in_col;
+    s->pending_in = 0;
+    if (same_in) return false;
+  }
+
   bool need_end = valid_symbols[LAYOUT_END];
   bool need_close = valid_symbols[LAYOUT_CLOSE];
 
@@ -394,6 +460,27 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
         return true;
       }
     } else {
+      // `in` keyword: close exactly the innermost open let-block at
+      // this paren depth, then let it be consumed. Handled before the
+      // column-based dedent / sibling logic so a nested let's inner
+      // `in` closes only the inner let, never chain-closing the
+      // enclosing one — regardless of how the formatter aligned the
+      // inner `in`'s column relative to the outer block's baseline.
+      // `pending_in` (read at scan-top) carries "this `in` already
+      // closed its let" across the zero-width re-invocation, so exactly
+      // one let closes per `in`. An `in` whose nearest enclosing block
+      // is a do / case (not a let) falls through to the dedent logic,
+      // which closes that block first; the enclosing let then closes on
+      // the following call.
+      if (need_close && top.is_let && s->paren_depth == top.paren_depth
+          && lookahead_in) {
+        s->len--;
+        s->pending_in = 1;
+        s->pending_in_col = clamp_col(col);
+        lexer->result_symbol = LAYOUT_CLOSE;
+        return true;
+      }
+
       // An enclosing `)` is about to close a paren that was open at
       // the moment this block was opened (top.paren_depth captured
       // that depth at LAYOUT_OPEN / LET_OPEN; we're back at the same
@@ -455,52 +542,24 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
         // form ending at the block's baseline col on the same
         // line doesn't prematurely separate siblings. Wins over
         // PAREN_OPEN below.
-        if (need_end) {
+        //
+        // Suppress when the next char begins a `|>` / `++` operator —
+        // a line starting with one is an expression continuation of
+        // the previous item, never a new sibling (no binding / stmt /
+        // arm starts with an operator). Same guard the dedent branch
+        // uses; without it, a `|>` / `++` continuation the formatter
+        // happens to align exactly on the block's baseline column is
+        // mistaken for a new sibling and the parse falls apart.
+        if (need_end && c != '|' && c != '+') {
           lexer->result_symbol = LAYOUT_END;
           return true;
         }
-      } else {
-        // ucol > top.col — same line as the opener (single-line
-        // let) or a continuation line. The only legitimate close
-        // trigger here is the `in` keyword inside a let-block:
-        // `let x = e in body` on a single physical line never
-        // dedents, but the let-block must still close before `in`
-        // can be tokenised as a keyword (tree-sitter's regular
-        // lexer otherwise lexes it as `lower_id`, the let-binding's
-        // value swallows `in` as an application argument, and the
-        // parser fails). Emit a zero-width LAYOUT_CLOSE on lookahead
-        // `in` when the top frame is a let-block at the SAME paren
-        // depth — same-paren-depth so a stray `in` inside a parens
-        // expression that opened after the let doesn't trigger.
-        if (need_close && top.is_let && s->paren_depth == top.paren_depth
-            && c == 'i') {
-          // Peek the next char without committing — we don't want to
-          // consume `in` itself; that's the regular lexer's job.
-          // The mark_end at scan-call-start keeps this token zero-width
-          // regardless of what we advance through here.
-          lexer->advance(lexer, false);
-          int32_t c2 = lexer->lookahead;
-          if (c2 == 'n') {
-            lexer->advance(lexer, false);
-            int32_t c3 = lexer->lookahead;
-            // `in` must be a complete token — not a prefix of a
-            // longer identifier (`integer`, `index`, `info`, …).
-            bool ident_cont =
-              (c3 >= 'a' && c3 <= 'z') ||
-              (c3 >= 'A' && c3 <= 'Z') ||
-              (c3 >= '0' && c3 <= '9') ||
-              c3 == '_' || c3 == '\'';
-            if (!ident_cont) {
-              s->len--;
-              lexer->result_symbol = LAYOUT_CLOSE;
-              return true;
-            }
-          }
-          // Not `in` — fall through. The advances above are
-          // discarded because mark_end was pinned at scan-call-start
-          // and we never re-mark.
-        }
       }
+      // ucol > top.col: the opener's own line (single-line let) or an
+      // expression continuation line. A single-line let's `in` is
+      // closed by the `in`-handler at the top of this block (so it
+      // composes with `pending_in`); any other token here is an
+      // expression continuation and needs no layout token.
     }
   }
 
