@@ -8240,7 +8240,7 @@ TS_PUBLIC const TSLanguage *tree_sitter_awsum(void) {
     .metadata = {
       .major_version = 0,
       .minor_version = 0,
-      .patch_version = 6,
+      .patch_version = 7,
     },
   };
   return &language;
