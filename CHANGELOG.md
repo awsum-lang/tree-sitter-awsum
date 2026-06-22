@@ -12,6 +12,8 @@ The version lives in two places — `package.json#version` and `tree-sitter.json
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-06-21
+
 ### Added
 
 - **Type ascription in parameter position `(p : T)`** — function-definition and lambda parameters now accept the ascription form (`f (x : T) = …`, `\(n : T) -> …`), reusing the existing `pattern_ascribe` node, so the `(pattern_ascribe (lower_id) @variable.parameter)` highlight rule covers it with no query change. Tracks the compiler's parameter type-annotation form; mirrors the pattern-position `(p : T)` and the expression-position `(e : T)` already supported.
