@@ -1365,8 +1365,21 @@
       }
     },
     "block_comment": {
-      "type": "PATTERN",
-      "value": "\\{-([^-]|-[^}])*-+\\}"
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{-"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_block_comment_content"
+        },
+        {
+          "type": "STRING",
+          "value": "-}"
+        }
+      ]
     }
   },
   "extras": [
@@ -1422,6 +1435,10 @@
     {
       "type": "SYMBOL",
       "name": "_let_open"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_block_comment_content"
     }
   ],
   "inline": [],

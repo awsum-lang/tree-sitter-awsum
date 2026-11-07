@@ -149,6 +149,48 @@ main = main
     body: (lower_id)))
 
 ==================
+Nested block comment
+==================
+
+{- outer
+   {- inner -} more -}
+f : Maybe Int32 -> Int32
+f x = case x of
+  Nothing -> g {- a {- b -} c -} 0
+  {- between arms {--} {---} -}
+  Just n -> n
+
+---
+
+(source_file
+  (block_comment)
+  (signature
+    name: (lower_id)
+    type: (arrow_type
+      domain: (type_app
+        callee: (upper_id)
+        arg: (upper_id))
+      codomain: (upper_id)))
+  (fun_def
+    name: (lower_id)
+    parameter: (lower_id)
+    body: (case_expr
+      scrutinee: (lower_id)
+      (case_arm
+        pattern: (pattern_constructor
+          (upper_id))
+        body: (app
+          (lower_id)
+          (block_comment)
+          (integer)))
+      (block_comment)
+      (case_arm
+        pattern: (pattern_constructor
+          (upper_id)
+          (lower_id))
+        body: (lower_id)))))
+
+==================
 Underscore-prefixed identifiers
 ==================
 
