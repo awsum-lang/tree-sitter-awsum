@@ -137,6 +137,12 @@
     }
   },
   {
+    "type": "block_comment",
+    "named": true,
+    "extra": true,
+    "fields": {}
+  },
+  {
     "type": "case_arm",
     "named": true,
     "fields": {
@@ -1687,6 +1693,10 @@
     "named": false
   },
   {
+    "type": "-}",
+    "named": false
+  },
+  {
     "type": ".",
     "named": false
   },
@@ -1705,11 +1715,6 @@
   {
     "type": "\\",
     "named": false
-  },
-  {
-    "type": "block_comment",
-    "named": true,
-    "extra": true
   },
   {
     "type": "case",
@@ -1763,6 +1768,10 @@
   {
     "type": "upper_id",
     "named": true
+  },
+  {
+    "type": "{-",
+    "named": false
   },
   {
     "type": "|",

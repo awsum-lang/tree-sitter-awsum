@@ -2,9 +2,7 @@
 ; tree-sitter outline.scm). Drives the structure pane / breadcrumb.
 ;
 ; We surface the same shapes that `awsum symbols --json` reports —
-; top-level functions, constants, and types. Constructors are NOT
-; included in v0 (matches the existing `awsum-vscode` outline; the LSP
-; server may add them later via `textDocument/documentSymbol`).
+; top-level functions, constants, and types (no constructors).
 ;
 ; @item    — the whole declaration (sets the navigation range)
 ; @name    — the identifier that names the item (highlighted in pane)

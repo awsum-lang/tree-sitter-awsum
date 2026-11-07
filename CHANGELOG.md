@@ -12,6 +12,16 @@ The version lives in two places — `package.json#version` and `tree-sitter.json
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-11-07
+
+### Fixed
+
+- **Nested block comments parse.** `{- outer {- inner -} more -}` is one comment, as in the compiler. The comment used to close at the first `-}`, so a nested comment produced `(ERROR …)` nodes that spilled into the next declaration, in every position, including the top-level and between-arm comments the compiler accepts. The content between a comment's `{-` and its matching `-}` is now an external token the scanner reads with a depth counter. The delimiters stay ordinary tokens, so layout tokens still fire before a comment and queries see the same `block_comment` node. Pinned by the `Nested block comment` corpus test.
+
+### Changed
+
+- `tree-sitter-cli` 0.26.9 → 0.27.2 (the generated parser stays at ABI 15), `node-addon-api` 8.8.0 → 8.9.2, `actions/setup-node` v6 → v7.
+
 ## [0.0.7] - 2026-06-21
 
 ### Added

@@ -7,11 +7,11 @@
 // expression or starts a new declaration / statement / arm without
 // column-aware cooperation from a scanner.
 //
-// We solve this with one indent stack and five external tokens:
+// We solve this with one indent stack and six layout tokens:
 //
-//   * LAYOUT_OPEN — emitted right after a block-opening keyword
-//     (`do`, `of`, `let`). Pushes (column, paren_depth) onto the
-//     indent stack: `column` is the indent baseline for siblings,
+//   * LAYOUT_OPEN / LET_OPEN — emitted right after a block-opening
+//     keyword (`do` / `of`; `let`). Pushes (column, paren_depth) onto
+//     the indent stack: `column` is the indent baseline for siblings,
 //     `paren_depth` is the current paren nesting captured at the
 //     moment the block was opened.
 //
@@ -37,6 +37,10 @@
 // The grammar uses `$._paren_open` / `$._paren_close` instead of the
 // literal `'('` / `')'` so every paren character routes through the
 // scanner — that's the only way to keep paren_depth accurate.
+//
+// A seventh token, BLOCK_COMMENT_CONTENT, is not about layout: it is
+// the text between a block comment's `{-` and its matching `-}`.
+// Block comments nest, which no grammar regex can match.
 
 #include "tree_sitter/parser.h"
 
@@ -52,19 +56,14 @@ enum TokenType {
   PAREN_OPEN,
   PAREN_CLOSE,
   LET_OPEN,
+  BLOCK_COMMENT_CONTENT,
 };
 
 // Total number of externals declared in `grammar.js`. Used by the
 // error-recovery guard. MUST match the externals array length in
 // `grammar.js` exactly — a mismatch makes `valid_symbols[i]`
 // out-of-bounds reads, which silently corrupts scanner decisions.
-//
-// Block comments are NOT external — the grammar's
-// `block_comment: $ => /\{-([^-]|-[^}])*-+\}/` regex matches them.
-// Don't try `[\s\S]*?-\}`: tree-sitter's regex engine matches `*?`
-// greedily, so two block comments in a file collapse into one (see
-// the banner comment in grammar.js for the full why).
-#define EXTERNAL_TOKEN_COUNT 6
+#define EXTERNAL_TOKEN_COUNT 7
 
 // Stack depth ceiling for the indent stack. The compiler stress
 // tests under `awsum/test/sources/successful/stress-*` push 300+
@@ -214,10 +213,8 @@ void tree_sitter_awsum_external_scanner_deserialize(void *payload, const char *b
 // return them via out parameters. Callers MUST use these instead
 // of `get_column` / `lookahead` after `skip_extras` returns.
 //
-// Block comments support nesting (`{- {- inner -} outer -}`) via
-// a counter — closes the gap that the regex-based `block_comment`
-// extras token can't, since the negated-class regex stops at the
-// first `-}` regardless of depth.
+// Block comments nest (`{- {- inner -} outer -}`), counted by the
+// same rule as `scan_block_comment_content`.
 static bool skip_extras(TSLexer *lexer, uint32_t *boundary_col, int32_t *boundary_char) {
   bool saw_newline = false;
   while (true) {
@@ -285,6 +282,44 @@ static bool skip_extras(TSLexer *lexer, uint32_t *boundary_col, int32_t *boundar
   }
 }
 
+// Scan a block comment's content: everything after the `{-` the
+// grammar just matched, up to (not including) the `-}` that closes
+// it. Nested `{- … -}` pairs belong to the content, so the compiler's
+// balanced `{- outer {- inner -} more -}` is one comment here too. At
+// EOF the content runs to the end and the grammar reports the missing
+// `-}`.
+static bool scan_block_comment_content(TSLexer *lexer) {
+  uint32_t depth = 0;
+  while (true) {
+    if (lexer->eof(lexer)) {
+      lexer->mark_end(lexer);
+      break;
+    }
+    int32_t c = lexer->lookahead;
+    if (c == '{') {
+      lexer->advance(lexer, false);
+      if (lexer->lookahead == '-') {
+        lexer->advance(lexer, false);
+        depth++;
+      }
+    } else if (c == '-') {
+      // The content ends right before this `-` if it starts the
+      // closing `-}`.
+      lexer->mark_end(lexer);
+      lexer->advance(lexer, false);
+      if (lexer->lookahead == '}') {
+        if (depth == 0) break;
+        lexer->advance(lexer, false);
+        depth--;
+      }
+    } else {
+      lexer->advance(lexer, false);
+    }
+  }
+  lexer->result_symbol = BLOCK_COMMENT_CONTENT;
+  return true;
+}
+
 // Clamp to 32767 — uint16_t minus the high bit reserved for is_let
 // in the serialized form (see serialize). 32K columns is far beyond
 // any realistic source line.
@@ -330,9 +365,9 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
   // is matched only once — by tree-sitter's internal lexer as extras
   // after the parser shifts the layout token.
   //
-  // Real-content tokens (PAREN_OPEN, PAREN_CLOSE, BLOCK_COMMENT)
-  // call `mark_end` again at their post-advance position so the
-  // token spans the actual content.
+  // Real-content tokens (PAREN_OPEN, PAREN_CLOSE,
+  // BLOCK_COMMENT_CONTENT) call `mark_end` again at their
+  // post-advance position so the token spans the actual content.
   lexer->mark_end(lexer);
 
   // Error-recovery guard. Tree-sitter sets EVERY `valid_symbols`
@@ -355,6 +390,13 @@ bool tree_sitter_awsum_external_scanner_scan(void *payload, TSLexer *lexer, cons
   }
   if (all_valid) {
     return false;
+  }
+
+  // Inside a block comment the content is the only valid token, and
+  // the scan must start right after the `{-` — before `skip_extras`
+  // would read the content as whitespace.
+  if (valid_symbols[BLOCK_COMMENT_CONTENT]) {
+    return scan_block_comment_content(lexer);
   }
 
   // LAYOUT_OPEN / LET_OPEN — push a new (column, paren_depth, is_let)

@@ -4,7 +4,7 @@
  * Source of truth for the surface forms is `awsum/docs/spec/grammar.ebnf`
  * in the compiler repo. This grammar is intentionally lenient — its
  * single job is correct syntax highlighting and a usable outline view
- * inside Tree-sitter-aware editors (Zed, Helix, Neovim, …). Precise
+ * inside Tree-sitter-aware editors (Zed, Neovim, Emacs). Precise
  * diagnostics never come from here; the LSP server (`awsum lsp`) drives
  * those by running the real Megaparsec parser + typechecker.
  *
@@ -17,41 +17,15 @@
  * ──────────────────────────────────────────────────────────────────
  * DO NOT use `*?` / `+?` non-greedy quantifiers in token regexes.
  *
- * tree-sitter's regex engine matches them GREEDILY in practice
- * (regex-syntax compiles `[\s\S]*?-\}` so it consumes everything up
- * to the LAST `-}` in the buffer, not the first). On a file with
- * two block comments the first `{-` pairs with the second `-}`,
- * collapsing the code between into one giant comment token; the
- * parser then enters infinite-loop error recovery (we measured 22
- * GiB of RAM in 10 seconds on a 4-line file).
- *
- * BROKEN:  block_comment: $ => seq('{-', /[\s\S]*?-\}/),
- *
- * Use a NEGATED CHARACTER CLASS instead so plain greedy `*` stops
- * at the first occurrence of the closer:
- *
- * OK:      block_comment: $ => /\{-([^-]|-[^}])*-+\}/,
- *
- * The inner repeat matches "any non-`-` char" OR "a `-` followed
- * by non-`}`". Greedy `*` stops at the first `-}` because neither
- * alternative matches `-`-followed-by-`}`. The trailing `-+\}`
- * consumes the closing `-}` (with `-+` to absorb extra dashes).
- *
- * Single-character closers are safe as ordinary regex (e.g. the
- * `line_comment` rule below uses `[^` newline `]` followed by `*`)
- * because a negated class is a plain greedy `*`, not a non-greedy
- * any-char.
- *
- * Don't try to fix this with an external scanner / composite rule:
- *   • Pure-external `block_comment` token: tree-sitter doesn't
- *     include external tokens in `valid_symbols` at every state
- *     where extras are allowed; the second `{- … -}` in a file
- *     parsed as `(ERROR …)` chunks.
- *   • Composite `seq('{-', $._block_comment_content, '-}')` with
- *     external middle: tree-sitter invoked the content scanner
- *     BEFORE the `{-` literal matched, swallowing the whole file.
- *   • Wrapper `block_comment: $ => $._block_comment`: same
- *     valid_symbols issue as the pure-external attempt.
+ * tree-sitter's regex engine matches them GREEDILY in practice. An
+ * early regex `block_comment`, `seq('{-', /[\s\S]*?-\}/)`, consumed
+ * everything up to the LAST `-}` in the buffer: on a file with two
+ * block comments the first `{-` paired with the second `-}`,
+ * collapsing the code between into one comment token, and the parser
+ * entered runaway error recovery (22 GiB of RAM in 10 seconds on a
+ * 4-line file). Use a negated character class with a plain greedy
+ * `*` instead (as `line_comment` below does), so the match stops at
+ * the first closer.
  * ──────────────────────────────────────────────────────────────────
  */
 
@@ -83,12 +57,15 @@ module.exports = grammar({
     //     keep the scanner's paren_depth accurate so layout tokens
     //     stay suppressed while we're inside parens that opened
     //     after the current block began.
+    //   * `_block_comment_content` — the text between a block
+    //     comment's `{-` and its matching `-}`; see `block_comment`.
     $._layout_open,
     $._layout_end,
     $._layout_close,
     $._paren_open,
     $._paren_close,
     $._let_open,
+    $._block_comment_content,
   ],
 
   conflicts: $ => [
@@ -460,19 +437,12 @@ module.exports = grammar({
     upper_id: $ => /_[A-Z][A-Za-z0-9_']*|[A-Z][A-Za-z0-9_']*/,
 
     line_comment: $ => token(seq('--', /[^\n]*/)),
-    // Block comment — single regex token, non-greedy via a NEGATED
-    // character class. The inner repeat `[^-]|-[^}]` matches any
-    // char that isn't `-`, OR a `-` followed by a non-`}`; greedy
-    // `*` stops at the first `-}` because neither alternative
-    // matches `-`-followed-by-`}`. `-+\}` then consumes the
-    // closing `-}` (with `-+` to absorb extra dashes like `--}`).
-    //
-    // DO NOT rewrite the inner repeat as `[\s\S]*?-\}` — see the
-    // banner comment at the top of this file. The full why is
-    // there with concrete examples.
-    //
-    // Nesting is NOT supported by this regex (Awsum doesn't
-    // require it in v0).
-    block_comment: $ => /\{-([^-]|-[^}])*-+\}/,
+    // Block comment. Comments nest (`{- a {- b -} c -}` is one
+    // comment, as in the compiler), which no regex can match, so the
+    // delimiters are ordinary tokens and the content between them is
+    // an external token that `src/scanner.c` reads with a depth
+    // counter. An internal `{-` keeps the layout tokens firing
+    // (zero-width) before the comment, as before any other extra.
+    block_comment: $ => seq('{-', $._block_comment_content, '-}'),
   },
 });
