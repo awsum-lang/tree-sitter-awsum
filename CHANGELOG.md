@@ -12,6 +12,10 @@ The version lives in two places — `package.json#version` and `tree-sitter.json
 
 ## [Unreleased]
 
+### Changed
+
+- CI: Node.js 24.14 → 26.
+
 ## [0.0.8] - 2026-11-07
 
 ### Fixed
