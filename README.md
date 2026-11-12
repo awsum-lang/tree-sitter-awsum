@@ -57,7 +57,7 @@ If either is missing, the test-suite falls back to a single `pendingWith` and th
 
 ## AI use
 
-This Tree-sitter grammar is developed with substantial usage of generative AI. Every generated change is reviewed, edited, and accepted by a human before it lands in the repository, and no output is shipped unedited.
+This Tree-sitter grammar is developed with substantial usage of generative AI.
 
 ## License
 

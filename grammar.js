@@ -162,8 +162,8 @@ module.exports = grammar({
     ))),
 
     // The bundled prelude spells the concat operator's binding as
-    // `(++) = …` so hover / go-to-definition on `a ++ b` lands on the
-    // same definition. Syntactically allowed in user code too, but
+    // `(++) a b = …`, so the operator is declared and documented under
+    // its own name. Syntactically allowed in user code too, but
     // practically prelude-only.
     _decl_name: $ => choice($.lower_id, $.operator_name),
     operator_name: $ => seq(alias($._paren_open, '('), '++', alias($._paren_close, ')')),
